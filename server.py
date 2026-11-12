@@ -20,7 +20,7 @@ from http.cookies import SimpleCookie, CookieError
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -38,7 +38,8 @@ from ai_services.learning import evaluate_predictions
 ROOT = Path(__file__).resolve().parent
 DB_PATH = ROOT / "trustshield.db"
 UPLOAD_DIR = ROOT / "uploads"
-MAX_BODY = 1_500_000
+# Three 2 MiB uploads in base64 need a little over 8 MiB including JSON framing.
+MAX_BODY = 9_000_000
 TIMEOUT = 9
 MAX_REDIRECTS = 5
 RATE_BUCKETS = {}
@@ -972,6 +973,7 @@ class Handler(BaseHTTPRequestHandler):
                 attachments = conn.execute("SELECT id,evidence_name,created_at FROM report_attachments WHERE report_id=? ORDER BY id", (report_id,)).fetchall() if is_admin or is_owner else []
                 attachment_count = conn.execute("SELECT (CASE WHEN evidence_name<>'' THEN 1 ELSE 0 END)+(SELECT COUNT(*) FROM report_attachments WHERE report_id=?)+(SELECT COUNT(*) FROM report_followups WHERE report_id=? AND evidence_path<>'') FROM reports WHERE id=?", (report_id, report_id, report_id)).fetchone()[0]
                 flags = conn.execute("SELECT id,type,reason,contact,status,review_note,created_at FROM report_flags WHERE report_id=? ORDER BY id DESC", (report_id,)).fetchall() if is_admin else []
+                ai_feedback = [dict(item) for item in conn.execute("SELECT f.finding_key,f.decision,f.note,f.created_at,u.name AS moderator FROM ai_feedback AS f JOIN ai_runs AS run ON run.id=f.run_id JOIN users AS u ON u.id=f.moderator_id WHERE run.resource_type='report' AND run.resource_id=? ORDER BY f.id", (report_id,)).fetchall()] if is_admin else []
                 guidance_actions = conn.execute("SELECT action_id,completed FROM report_guidance_actions WHERE report_id=? AND ((user_id=? AND ? IS NOT NULL) OR guest_token_hash IN (" + (",".join("?" for _ in guest_hashes) if guest_hashes else "''") + "))", (report_id, user["id"] if user else None, user["id"] if user else None, *guest_hashes)).fetchall() if is_owner else []
             if not is_admin and not is_owner and not is_public:
                 return self.send_json({"error": "Report not found."}, 404)
@@ -979,6 +981,7 @@ class Handler(BaseHTTPRequestHandler):
             result["domain"] = report_domain(result["url"])
             result["reference_code"] = f"TSH-{report_id:06d}"
             result["can_manage"] = bool(is_admin or is_owner)
+            result["is_owner"] = bool(is_owner)
             result["is_admin"] = is_admin
             result["available_transitions"] = sorted(STATUS_TRANSITIONS.get(result["status"], set())) if is_admin else []
             result["evidence_analysis"] = json.loads(result.get("evidence_analysis") or "{}")
@@ -990,6 +993,8 @@ class Handler(BaseHTTPRequestHandler):
             result["followups"] = [dict(item) for item in followups]
             result["evidence_files"] = ([{"id": 0, "name": result.get("evidence_name"), "kind": "submitted"}] if result.get("evidence_name") else []) + [{"id": item["id"], "name": item["evidence_name"], "kind": "additional"} for item in attachments] + [{"id": item["id"], "name": item["evidence_name"], "kind": "follow-up"} for item in followups if item["evidence_name"]]
             result["disputes"] = [dict(item) for item in flags]
+            if is_admin:
+                result["ai_feedback"] = ai_feedback
             result["evidence_submitted"] = bool(attachment_count)
             result["evidence_file_count"] = attachment_count
             result["evidence_reviewed"] = result["evidence_submitted"] and result["status"] in {"Partially Supported", "Verified Findings"}
@@ -1290,10 +1295,15 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json({"error": "Please confirm the community report notice."}, 400)
                 ai_consent = payload.get("ai_consent") is True
                 incident_date = str(payload.get("incident_date", ""))[:10]
+                try: timezone_offset_minutes = int(payload.get("timezone_offset_minutes", 0))
+                except (ValueError, TypeError): timezone_offset_minutes = 0
+                if not -840 <= timezone_offset_minutes <= 840:
+                    timezone_offset_minutes = 0
                 if incident_date:
                     try: parsed_incident_date = datetime.strptime(incident_date, "%Y-%m-%d").date()
                     except ValueError: parsed_incident_date = None
-                    if not parsed_incident_date or parsed_incident_date > datetime.now(timezone.utc).date():
+                    local_today = (datetime.now(timezone.utc) - timedelta(minutes=timezone_offset_minutes)).date()
+                    if not parsed_incident_date or parsed_incident_date > local_today:
                         return self.send_json({"error": "Enter a valid incident date that is not in the future."}, 400)
                 related = str(payload.get("links", ""))[:1000].strip()
                 if related:
@@ -1313,7 +1323,8 @@ class Handler(BaseHTTPRequestHandler):
                 evidence_path = uploaded["path"] if uploaded else ""
                 created_at = now()
                 candidate = {"url": url, "category": category, "details": details, "incident_date": incident_date,
-                             "links": related, "created_at": created_at}
+                             "links": related, "created_at": created_at,
+                             "timezone_offset_minutes": timezone_offset_minutes}
                 with db() as conn:
                     duplicate = conn.execute("SELECT id FROM reports WHERE lower(url)=lower(?) AND lower(category)=lower(?) AND lower(details)=lower(?) LIMIT 1", (url, category, details)).fetchone()
                     if duplicate:
@@ -1323,8 +1334,14 @@ class Handler(BaseHTTPRequestHandler):
                     related_reports = [item for item in pattern_candidates if item["category"] == category and report_domain(item["url"]) == domain]
                     duplicate_hashes = {item[0] for item in conn.execute("SELECT sha256 FROM evidence_hashes")}
                     analysis = analyze_evidence(candidate, uploaded_files, related_reports, duplicate_hashes)
-                    candidate.update({"domain": domain, "business": str(payload.get("business", ""))[:120].strip()})
-                    ai_intelligence = analyze_report_intelligence(candidate, uploaded_files, pattern_candidates, consent=ai_consent)
+                candidate.update({"domain": domain, "business": str(payload.get("business", ""))[:120].strip(),
+                                 "amount": str(payload.get("amount", ""))[:60].strip()})
+                # External inference stays outside the SQLite transaction so provider latency does not hold database locks.
+                ai_intelligence = analyze_report_intelligence(candidate, uploaded_files, pattern_candidates, consent=ai_consent)
+                with db() as conn:
+                    duplicate = conn.execute("SELECT id FROM reports WHERE lower(url)=lower(?) AND lower(category)=lower(?) AND lower(details)=lower(?) LIMIT 1", (url, category, details)).fetchone()
+                    if duplicate:
+                        return self.send_json({"error": "A matching report is already on file. Add new information by contacting the review team."}, 409)
                     cur = conn.execute("INSERT INTO reports(url,category,details,evidence,created_at,business,incident_date,amount,reference,links,status,user_id,evidence_name,evidence_path,guest_token_hash,evidence_analysis,domain,public_summary,ai_analysis,ai_consent) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (url, category, details, "", created_at, str(payload.get("business", ""))[:120].strip(), incident_date, str(payload.get("amount", ""))[:60].strip(), str(payload.get("reference", ""))[:120].strip(), related, "Submitted", user["id"] if user else None, evidence_name, evidence_path, token_digest(guest_token) if guest_token else "", json.dumps(analysis), domain, safe_description(details)[:240], json.dumps(ai_intelligence), int(ai_consent)))
                     report_id = cur.lastrowid
                     persist_ai_results(conn, "report", report_id, ai_intelligence, user_consented=ai_consent)

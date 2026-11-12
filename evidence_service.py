@@ -93,9 +93,17 @@ def analyze_evidence(report: dict, files: list[dict], related_reports: list[dict
         add("category_relevance", "Category relevance", "UNKNOWN", "There is no attachment to assess for category relevance.")
     incident_date = str(report.get("incident_date", ""))
     created = str(report.get("created_at", ""))[:10]
+    try:
+        from datetime import datetime, timedelta
+        submitted_at = datetime.fromisoformat(str(report.get("created_at", "")).replace("Z", "+00:00"))
+        timezone_offset = int(report.get("timezone_offset_minutes", 0))
+        if -840 <= timezone_offset <= 840:
+            created = (submitted_at - timedelta(minutes=timezone_offset)).date().isoformat()
+    except (ValueError, TypeError):
+        pass
     date_ok = not incident_date or (bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", incident_date)) and incident_date <= created)
     add("date_consistency", "Date consistency", "PASS" if date_ok else "WARNING",
-        "The stated incident date is not later than the submission date. Dates are user supplied and are not independently verified." if date_ok else "The incident date appears later than the report submission date or is malformed; ask the reporter to clarify.", incident_date or "No incident date supplied")
+        "The stated incident date is not later than the submission date in the reporter’s local timezone. Dates are user supplied and are not independently verified." if date_ok else "The incident date appears later than the report submission date or is malformed; ask the reporter to clarify.", incident_date or "No incident date supplied")
     unrelated = [item for item in submitted_urls if not related_hosts(item, host)]
     add("url_relationship", "Related URL check", "WARNING" if unrelated else "PASS",
         "Some submitted links use a different domain. This may be expected; moderators should review their relationship." if unrelated else "Submitted links are on the reported domain or a related subdomain." if submitted_urls else "No additional URLs were supplied.", ", ".join(unrelated or submitted_urls))

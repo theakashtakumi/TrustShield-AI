@@ -299,12 +299,14 @@ function renderReportAi(report, isOwner, isAdmin) {
   const evidenceAi = evidence.ai || {};
   const extracted = evidenceAi.status === 'available' ? evidenceAi.extracted_information : evidence.extracted_information;
   const indicators = (complaintAi.risk_indicators || []).map((item, index) => {
-    const feedback = isAdmin && complaintAi.analysis_id ? `<div class="ai-moderator-feedback"><label class="sr-only" for="ai-note-${index}">Moderator feedback note</label><input class="form-input" id="ai-note-${index}" data-ai-note placeholder="Optional moderator note" maxlength="1000"/><button type="button" data-ai-feedback="accepted" data-ai-run="${Number(complaintAi.analysis_id)}" data-ai-key="risk_indicators:${index}">Accept as useful</button><button type="button" data-ai-feedback="rejected" data-ai-run="${Number(complaintAi.analysis_id)}" data-ai-key="risk_indicators:${index}">Reject as incorrect</button></div>` : '';
+    const previous = (report.ai_feedback || []).filter((entry) => entry.finding_key === `risk_indicators:${index}`).at(-1);
+    const previousHtml = previous ? `<p class="ai-muted">Last moderator decision: ${escapeHtml(previous.decision)}${previous.note ? ` · ${escapeHtml(previous.note)}` : ''} · ${escapeHtml(previous.moderator)}</p>` : '';
+    const feedback = isAdmin && complaintAi.analysis_id ? `${previousHtml}<div class="ai-moderator-feedback"><label class="sr-only" for="ai-note-${index}">Moderator feedback note</label><input class="form-input" id="ai-note-${index}" data-ai-note placeholder="Optional moderator note" maxlength="1000"/><button type="button" data-ai-feedback="accepted" data-ai-run="${Number(complaintAi.analysis_id)}" data-ai-key="risk_indicators:${index}">Accept as useful</button><button type="button" data-ai-feedback="rejected" data-ai-run="${Number(complaintAi.analysis_id)}" data-ai-key="risk_indicators:${index}">Reject as incorrect</button></div>` : '';
     return `<details class="ai-finding"><summary><span class="ai-severity severity-${escapeHtml(item.severity)}">${escapeHtml(item.severity)}</span><b>${escapeHtml(item.name)}</b></summary><p>${escapeHtml(item.description)}</p>${item.evidence ? `<blockquote>${escapeHtml(item.evidence)}</blockquote>` : ''}<p><b>Suggested next step:</b> ${escapeHtml(item.recommended_action || '')}</p>${modelConfidence(item.confidence)}${feedback}</details>`;
   }).join('');
   const showRetry = isOwner && state.aiStatus?.configured;
   const showAdminRetry = isAdmin && report.ai_consent && state.aiStatus?.configured;
-  const retry = showRetry ? `<div class="ai-consent-retry"><label class="check-label"><input type="checkbox" id="ai-retry-consent" /><span>Send redacted report text and extracted evidence text to the configured provider for this analysis. The original files are not sent.</span></label><button class="button button-outline" type="button" id="retry-ai-analysis" disabled>Run AI-assisted analysis</button></div>` : showAdminRetry ? `<button class="button button-outline" type="button" id="retry-ai-analysis">Retry AI-assisted analysis</button>` : '';
+  const retry = showRetry ? `<div class="ai-consent-retry"><label class="check-label"><input type="checkbox" id="ai-retry-consent" /><span>Send report text and locally extracted evidence text after common email, phone, credential, and long-number redaction. Other sensitive details may remain, so review the report before consenting. The original files are not sent.</span></label><button class="button button-outline" type="button" id="retry-ai-analysis" disabled>Run AI-assisted analysis</button></div>` : showAdminRetry ? `<button class="button button-outline" type="button" id="retry-ai-analysis">Retry AI-assisted analysis</button>` : '';
   const entityList = extracted ? Object.entries(extracted).flatMap(([key, values]) => Array.isArray(values) && values.length ? [`<span><b>${escapeHtml(key.replaceAll('_', ' '))}:</b> ${values.map(escapeHtml).join(', ')}</span>`] : []).join('') : '';
   const missing = (complaintAi.status === 'available' ? complaintAi.missing_information : local.missing_information) || [];
   const questions = complaintAi.status === 'available' ? (complaintAi.suggested_questions || []) : [];
@@ -312,14 +314,14 @@ function renderReportAi(report, isOwner, isAdmin) {
   const extractionRows = (evidence.files || []).map((item) => `<span>${escapeHtml(item.name)} · ${escapeHtml(item.extraction_status)} · ${Number(item.characters_extracted)} characters</span>`).join('');
   const aiSummary = complaintAi.status === 'available' ? complaintAi.summary : (local.summary || 'AI analysis has not been run for this report.');
   const status = complaintAi.status === 'available' || evidenceAi.status === 'available' ? 'AI-assisted observations' : 'Rule-based assistance only';
-  const reportLabel = isAdmin ? `<form class="ai-outcome-form" id="ai-outcome-form" data-report-id="${Number(report.id)}"><label class="field-label">Curate a human-reviewed outcome<select class="form-input" name="label"><option>confirmed malicious activity</option><option>supported complaint</option><option>insufficient evidence</option><option>inaccurate complaint</option><option>legitimate business</option><option>disputed</option><option>unresolved</option></select></label><label class="field-label">Dataset partition<select class="form-input" name="partition"><option value="unassigned">Keep outside evaluation/training</option><option value="training">Training candidate</option><option value="evaluation">Evaluation set</option></select></label><button class="button button-outline" type="submit">Save human label</button><small>Only reviewed cases should be labeled. Disputed and unresolved cases stay unassigned.</small></form>` : '';
+  const reportLabel = isAdmin ? `<form class="ai-outcome-form" id="ai-outcome-form" data-report-id="${Number(report.id)}"><label class="field-label">Curate a human-reviewed outcome<select class="form-input" name="label"><option>confirmed malicious activity</option><option>supported complaint</option><option>insufficient evidence</option><option>inaccurate complaint</option><option>legitimate business</option><option>disputed</option><option>unresolved</option></select></label><label class="field-label">Dataset partition<select class="form-input" name="partition"><option value="unassigned">Keep outside evaluation/training</option><option value="training">Training candidate</option><option value="evaluation">Evaluation set</option></select></label><label class="field-label">Review note · required<textarea class="form-input" name="note" minlength="12" maxlength="1000" required placeholder="Summarize the human-reviewed basis for this label."></textarea></label><button class="button button-outline" type="submit">Save human label</button><small>Only reviewed cases should be labeled. Disputed and unresolved cases stay unassigned.</small></form>` : '';
   return `<section class="detail-section ai-report-panel"><div class="ai-panel-heading"><span class="ai-label">AI-ASSISTED · HUMAN REVIEW REQUIRED</span><h3>Investigation assistance</h3><span class="ai-state ${complaintAi.status === 'available' ? '' : 'unavailable'}">${status}</span></div><p class="ai-report-summary">${escapeHtml(aiSummary)}</p><p class="ai-muted">${escapeHtml(complaintAi.message || evidenceAi.message || 'Local extraction and deterministic completeness checks remain available. AI output cannot change the report status.')}</p>${complaintAi.status === 'available' ? `<div class="ai-run-meta">${escapeHtml(complaintAi.provider)} · ${escapeHtml(complaintAi.model)} · ${escapeHtml(complaintAi.model_version || 'version unknown')} · prompt ${escapeHtml(complaintAi.prompt_version || 'unknown')} · triage: ${escapeHtml(complaintAi.triage)}</div><div class="ai-observation-list">${indicators || '<p>No specific risk indicator was returned. That is not a safety determination.</p>'}</div>` : ''}${extractionRows ? `<details class="ai-details"><summary>Evidence extraction status</summary><div class="ai-extracted-list">${extractionRows}${entityList}</div><p class="ai-muted">${escapeHtml(evidence.limitations || 'OCR can be incomplete and does not prove authenticity.')}</p></details>` : ''}${conflicts.length ? `<div class="ai-warning-list"><b>Potential inconsistencies to review</b>${conflicts.map((item) => `<p>${escapeHtml(item)}</p>`).join('')}</div>` : ''}${missing.length ? `<details class="ai-details"><summary>Missing information to consider (${missing.length})</summary><ul>${missing.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul></details>` : ''}${questions.length ? `<details class="ai-details"><summary>Suggested moderator questions (${questions.length})</summary><ul>${questions.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul></details>` : ''}<details class="ai-details"><summary>Related pattern leads (${(bundle.related_patterns || []).length})</summary>${(bundle.related_patterns || []).length ? `<div>${(bundle.related_patterns || []).map((item) => `<p>Report #${Number(item.id)} · ${Math.round(Number(item.similarity) * 100)}% text similarity · ${escapeHtml((item.reasons || []).join(', '))}</p>`).join('')}</div>` : '<p>No likely related patterns were found by these rules. Similar reports are leads, not independent evidence.</p>'}</details>${retry}${reportLabel}<p class="ai-limits">Confidence bands are model-reported and uncalibrated. Evidence analysis does not determine authenticity or whether a complaint is true. Official status remains under human moderator control.</p></section>`;
 }
 
 function showReport(report) {
   const dialog = document.createElement('dialog');
   dialog.className = 'modal report-detail-modal';
-  const isOwner = Boolean(report.can_manage);
+  const isOwner = Boolean(report.is_owner);
   const isAdmin = Boolean(report.is_admin);
   const aiReportPanel = isOwner || isAdmin ? renderReportAi(report, isOwner, isAdmin) : '';
   const evidenceChecks = (report.evidence_analysis?.checks || []).map((check) => `<div class="evidence-check"><span class="evidence-check-status ${String(check.status).toLowerCase().replaceAll(' ', '-')}">${escapeHtml(check.status)}</span><div><b>${escapeHtml(check.label)}</b><p>${escapeHtml(check.explanation)}</p>${check.evidence ? `<small>${escapeHtml(check.evidence)}</small>` : ''}</div></div>`).join('');
@@ -427,9 +429,20 @@ function showReport(report) {
   dialog.showModal();
 }
 
+function localDateValue(date = new Date()) {
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+}
+
+function setIncidentDateLimit() {
+  const input = $('#report-date');
+  input.max = localDateValue();
+  input.setCustomValidity('');
+}
+
 async function openReportForm() {
   $('#report-error').textContent = '';
   $('#report-form').reset();
+  setIncidentDateLimit();
   state.pendingEvidence = [];
   showReportStep(1);
   renderEvidenceSelection();
@@ -503,7 +516,7 @@ async function submitReport(event) {
     const payload = {
       url: $('#report-url').value.trim(), business: $('#report-business').value.trim(),
       category: $('#report-category').value, details: $('#report-details').value.trim(),
-      incident_date: $('#report-date').value, amount: $('#report-amount').value.trim() ? `${$('#report-currency').value} ${$('#report-amount').value.trim()}` : '',
+      incident_date: $('#report-date').value, timezone_offset_minutes: new Date().getTimezoneOffset(), amount: $('#report-amount').value.trim() ? `${$('#report-currency').value} ${$('#report-amount').value.trim()}` : '',
       reference: $('#report-reference').value.trim(), links: $('#report-links').value.trim(),
       evidence_files: await Promise.all(state.pendingEvidence.map(filePayload)), agree: $('#report-agree').checked,
       ai_consent: $('#report-ai-consent').checked,
@@ -629,6 +642,10 @@ $('#cta-scan').addEventListener('click', () => { window.scrollTo({ top: 0, behav
 $('#open-report').addEventListener('click', openReportForm);
 $('#footer-report').addEventListener('click', openReportForm);
 $('#report-form').addEventListener('submit', submitReport);
+$('#report-date').addEventListener('input', (event) => {
+  const input = event.currentTarget;
+  input.setCustomValidity(input.value && input.value > input.max ? 'Choose today or an earlier date.' : '');
+});
 $('#report-next').addEventListener('click', () => { if (validateReportStep(state.reportStep || 1)) showReportStep(Math.min(3, (state.reportStep || 1) + 1)); });
 $('#report-back').addEventListener('click', () => showReportStep(Math.max(1, (state.reportStep || 1) - 1)));
 $('#report-evidence').addEventListener('change', () => {

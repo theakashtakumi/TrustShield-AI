@@ -5,6 +5,7 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -203,6 +204,16 @@ class ApiWorkflowTests(unittest.TestCase):
             mismatch.do_POST()
         self.assertIn("does not match", mismatch.body()["error"])
 
+    def test_report_upload_rejects_evidence_over_the_documented_file_limit(self):
+        oversized = b"\x89PNG\r\n\x1a\n" + b"x" * (2 * 1024 * 1024)
+        payload = {"url": "https://shop.example", "category": "Other concern",
+                   "details": "A sufficiently detailed report about this website.", "agree": True,
+                   "evidence_file": {"name": "large.png", "mime_type": "image/png", "data": base64.b64encode(oversized).decode("ascii")}}
+        request = FakeRequestHandler("POST", "/api/reports", payload)
+        with patch.object(server, "safe_public_host"):
+            request.do_POST()
+        self.assertIn("2 MB", request.body()["error"])
+
     def test_guest_report_can_be_revisited_with_its_private_token(self):
         payload = {"url": "https://guest.example", "category": "Other concern", "details": "The price shown changed before checkout.", "agree": True}
         submit = FakeRequestHandler("POST", "/api/reports", payload)
@@ -251,6 +262,114 @@ class ApiWorkflowTests(unittest.TestCase):
         guest_history.headers["X-TrustShield-Guest-Tokens"] = guest_report["guest_token"]
         guest_history.do_GET()
         self.assertEqual(guest_history.body()["my_reports"][0]["id"], guest_report["id"])
+
+    def test_report_date_rejects_future_but_accepts_reporters_local_today(self):
+        future_date = (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
+        future = FakeRequestHandler("POST", "/api/reports", {
+            "url": "https://future-date.example", "category": "Other concern",
+            "details": "This report uses an incident date that is after its submission date.",
+            "incident_date": future_date, "timezone_offset_minutes": 0, "agree": True,
+        })
+        with patch.object(server, "safe_public_host"):
+            future.do_POST()
+        self.assertIn("not in the future", future.body()["error"])
+
+        local_offset = -840
+        local_today = (datetime.now(timezone.utc) - timedelta(minutes=local_offset)).date().isoformat()
+        valid = FakeRequestHandler("POST", "/api/reports", {
+            "url": "https://local-date.example", "category": "Other concern",
+            "details": "This report uses the current date in the reporter’s local timezone.",
+            "incident_date": local_today, "timezone_offset_minutes": local_offset, "agree": True,
+        })
+        with patch.object(server, "safe_public_host"), patch.object(server, "analyze_report_intelligence", return_value={}):
+            valid.do_POST()
+        result = valid.body()
+        self.assertTrue(result.get("id"))
+        with server.db() as conn:
+            saved = conn.execute("SELECT evidence_analysis FROM reports WHERE id=?", (result["id"],)).fetchone()
+        checks = {item["id"]: item for item in json.loads(saved["evidence_analysis"])["checks"]}
+        self.assertEqual(checks["date_consistency"]["status"], "PASS")
+
+    def test_ai_consent_provenance_human_feedback_and_curated_evaluation(self):
+        _user, cookie = self.register_admin()
+        report_payload = {"url": "https://seller.example", "category": "Non-delivery after payment",
+                          "details": "I paid for an order, but the item did not arrive. The seller stopped replying.",
+                          "agree": True, "ai_consent": False}
+        with patch.object(server, "safe_public_host"), patch.object(server, "analyze_report_intelligence") as analysis:
+            analysis.return_value = {"version": "1.0.0", "label": "AI-assisted analysis", "complaint": {"local": {"summary": "Local summary"}, "ai": {"status": "not_consented", "provider": "none"}}, "evidence": {}, "related_patterns": [], "moderator_brief": {"may_change_report_status": False}}
+            submitted = FakeRequestHandler("POST", "/api/reports", report_payload, cookie)
+            submitted.do_POST()
+        report_id = submitted.body()["id"]
+        self.assertFalse(analysis.call_args.kwargs["consent"])
+        denied_retry = FakeRequestHandler("POST", f"/api/reports/{report_id}/ai-analysis", {"consent": False}, cookie)
+        denied_retry.do_POST()
+        self.assertIn("Explicit consent", denied_retry.body()["error"])
+        with server.db() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM ai_runs").fetchone()[0], 0)
+
+        finding = {"name": "Communication stopped", "description": "The report says the seller stopped replying.",
+                   "severity": "moderate", "confidence": "low", "evidence": "seller stopped replying",
+                   "recommended_action": "Ask whether another contact attempt was made."}
+        def consented_analysis(_report, _files, _candidates, *, consent=False):
+            self.assertTrue(consent)
+            return {"version": "1.0.0", "label": "AI-assisted analysis", "external_processing_consent": True,
+                    "complaint": {"local": {"summary": "The account awaits review."}, "ai": {
+                        "analysis_type": "complaint_intelligence", "prompt_version": "test-1", "input_sha256": "a" * 64,
+                        "provider": "fake", "model": "test-model", "model_version": "1",
+                        "status": "available", "triage": "suspicious_indicators", "summary": "A neutral account summary.",
+                        "risk_indicators": [finding], "usage": {"total_tokens": 9}}},
+                    "evidence": {}, "related_patterns": [], "moderator_brief": {"may_change_report_status": False}}
+        retry = FakeRequestHandler("POST", f"/api/reports/{report_id}/ai-analysis", {"consent": True}, cookie)
+        with patch.object(server, "analyze_report_intelligence", side_effect=consented_analysis):
+            retry.do_POST()
+        self.assertTrue(retry.body()["report_status_unchanged"])
+        with server.db() as conn:
+            report = conn.execute("SELECT status,ai_consent FROM reports WHERE id=?", (report_id,)).fetchone()
+            run = conn.execute("SELECT * FROM ai_runs WHERE resource_id=?", (report_id,)).fetchone()
+        self.assertEqual(report["status"], "Submitted")
+        self.assertEqual(report["ai_consent"], 1)
+        self.assertEqual(run["provider"], "fake")
+        self.assertEqual(run["model_version"], "1")
+        self.assertEqual(run["user_consented"], 1)
+        self.assertEqual(json.loads(run["usage_json"])["total_tokens"], 9)
+        self.assertEqual(run["input_sha256"], "a" * 64)
+        self.assertNotIn(report_payload["details"], run["result_json"])
+
+        detail = FakeRequestHandler("GET", f"/api/reports/{report_id}", cookie=cookie)
+        detail.do_GET()
+        ai_run_id = detail.body()["ai_analysis"]["complaint"]["ai"]["analysis_id"]
+        feedback = FakeRequestHandler("POST", "/api/admin/ai/feedback", {
+            "run_id": ai_run_id, "finding_key": "risk_indicators:0", "decision": "accepted", "note": "Relevant account signal."}, cookie)
+        feedback.do_POST()
+        self.assertTrue(feedback.body()["ok"])
+        reviewed_detail = FakeRequestHandler("GET", f"/api/reports/{report_id}", cookie=cookie)
+        reviewed_detail.do_GET()
+        self.assertEqual(reviewed_detail.body()["ai_feedback"][0]["decision"], "accepted")
+        denied_feedback = FakeRequestHandler("POST", "/api/admin/ai/feedback", {
+            "run_id": ai_run_id, "finding_key": "risk_indicators:4", "decision": "accepted"}, cookie)
+        denied_feedback.do_POST()
+        self.assertEqual(denied_feedback.response_headers().split("\r\n")[0].split()[1], "400")
+
+        outcome = FakeRequestHandler("POST", f"/api/admin/reports/{report_id}/ai-outcome", {
+            "label": "confirmed malicious activity", "partition": "evaluation", "note": "Reviewed order and correspondence."}, cookie)
+        outcome.do_POST()
+        self.assertTrue(outcome.body()["ok"])
+        evaluation = FakeRequestHandler("GET", "/api/admin/ai/evaluation", cookie=cookie)
+        evaluation.do_GET()
+        self.assertEqual(evaluation.body()["overall"]["precision"], 1.0)
+        split = FakeRequestHandler("POST", f"/api/admin/reports/{report_id}/ai-outcome", {
+            "label": "confirmed malicious activity", "partition": "training", "note": "Do not split this same report."}, cookie)
+        split.do_POST()
+        self.assertEqual(split.response_headers().split("\r\n")[0].split()[1], "409")
+
+        transition = FakeRequestHandler("PATCH", f"/api/admin/reports/{report_id}/status", {
+            "status": "Under Review", "note": "Human review started."}, cookie)
+        transition.do_PATCH()
+        public = FakeRequestHandler("GET", f"/api/reports/{report_id}")
+        public.do_GET()
+        self.assertNotIn("ai_analysis", public.body())
+        self.assertNotIn("ai_consent", public.body())
+        self.assertNotIn("ai_feedback", public.body())
 
 
 if __name__ == "__main__":
