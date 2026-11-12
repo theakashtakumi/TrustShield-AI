@@ -28,15 +28,21 @@ The first account registered with `TRUSTSHIELD_ADMIN_EMAIL` and the matching `TR
 
 - Read-only scan of a public HTTP/HTTPS page with DNS and redirect destination checks, short timeouts, response size limits, and a restrictive outbound target policy.
 - Explainable 0–100 trust score and risk tier. The score is derived from weighted visible warning signals; it is neither a probability nor a safety guarantee.
-- Findings for TLS/HTTPS, response status, selected browser security headers, return/contact wording, selected high-pressure phrases, and a small set of URL impersonation patterns.
-- User-submitted community reports, basic duplicate suppression, search and status filtering, optional evidence files, registration/login, private account history, and administrator status changes with a verification event history.
-- Evidence files are limited to PNG, JPG, WEBP, PDF, or TXT and 2 MB. They are stored outside the public web directory and are available only to the report owner or an administrator.
+- Categorized findings for DNS, TLS/HTTPS, HTTP behavior, all six requested security headers, cookie attributes, return/contact wording, selected high-pressure phrases, and URL patterns. Each finding includes a structured status, observed evidence, source, timestamp, scanner version, and score contribution.
+- Complaint guidance tailored to the incident, with checkable and persisted steps, official India cybercrime/consumer links, and clear general-information disclaimers.
+- Reports have stable references, a human review timeline, structured evidence checks, likely-duplicate hints, secure attachments, owner-only follow-up submissions, and accuracy/dispute requests.
+- Moderation uses distinct states: Submitted, Under Review, More Information Required, Partially Supported, Verified Findings, Inconsistencies Found, Rejected, and Disputed. Status changes require an internal reason, are audit logged, and persist owner notifications; requests for more information also include a separate public message.
+- Community search filters by website, domain, business, category, and status; sorts by latest or same-domain discussion count; and uses database-backed pagination. Website scan results include database-backed report counts and review statuses.
+- User dashboards show actual scan/report totals, review queues, pending guidance, report history, and unread/read notifications. Admin views include queue metrics, evidence triage, related reports, and dispute/accuracy review.
+- Users may attach up to 3 PNG, JPG, WEBP, PDF, or TXT files at 2 MB each. Files are stored outside the public web directory and downloads are restricted to the report owner or an administrator.
 
 ## Honest limitations
 
-This MVP does not call domain registration/WHOIS, threat intelligence, antivirus, payment, review, or business registries. Domain age and known malicious-domain checks are shown as unavailable by omission from this initial rule set; no external verification is fabricated. Website content checks cover only a bounded text read of the requested page and may miss content on other pages, scripts, or behind login. The current implementation is deterministic and is not AI-powered.
+Evidence triage checks file structure/readability, category hints, duplicate hashes, date consistency, submitted URL relationships, and report completeness. These checks do not establish evidence authenticity or prove an allegation. Similar-report matches are moderator leads, not independent confirmation. There is no OCR, document extraction, image analysis, or AI verification. Community numbers include unverified reports and must not be treated as proof of wrongdoing.
 
-Reports are allegations until reviewed by a human moderator. Moderation status does not establish legal wrongdoing. Admin bootstrap uses an environment variable and is suitable for a local MVP, not a production identity system. Use HTTPS, a production database, durable rate limiting, malware scanning, backups, and an operational moderation policy before public deployment.
+The app does not call domain registration/WHOIS, threat intelligence, antivirus, payment, review, or business registries. These checks are unavailable; no external verification is fabricated. Website content checks cover only a bounded text read of the requested page and may miss content on other pages, scripts, or behind login. The scanner and complaint triage are deterministic and are not AI-powered.
+
+Reports remain allegations unless a moderator records a scoped review finding; even then, the status is not a legal determination. Evidence stays private until the report has entered a public review state. Guest report access depends on the browser’s locally stored token. Admin bootstrap uses an environment variable and is suitable for a local MVP, not a production identity system. Use HTTPS, a production database, durable rate limiting, malware scanning, retention controls, backups, and an operational moderation policy before public deployment.
 
 ## Project guides
 

@@ -53,7 +53,7 @@ class ScannerTests(unittest.TestCase):
                 with patch.object(server, "safe_public_host"), patch.object(server.urllib.request, "build_opener", return_value=opener):
                     result = server.scan_site("shop.example")
                 self.assertEqual(result["label"], "Low Risk")
-                self.assertTrue(any(item["name"] == "Return and refund information" and item["status"] == "positive" for item in result["checks"]))
+                self.assertTrue(any(item["name"] == "Return and refund information" and item["status"] == "PASS" for item in result["checks"]))
                 with server.db() as conn:
                     saved = conn.execute("SELECT checks FROM scans WHERE id=?", (result["id"],)).fetchone()
                 self.assertIn("Return and refund information", saved["checks"])
