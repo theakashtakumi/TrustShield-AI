@@ -24,6 +24,12 @@ Prerequisite: Python 3.11 or newer. The app uses only the Python standard librar
 
 The first account registered with `TRUSTSHIELD_ADMIN_EMAIL` and the matching `TRUSTSHIELD_ADMIN_BOOTSTRAP_TOKEN` receives the administrator role. Enter the token in the optional administrator setup field during registration, then clear the token from the environment. The app creates `trustshield.db` and an `uploads/` directory on first start. Both are local data and excluded from Git.
 
+## Deploy the frontend to Vercel
+
+The repository includes `vercel.json`, which tells Vercel to publish the static site from `web/` so the deployment root serves `web/index.html` instead of returning a 404. Keep the Vercel project Root Directory at the repository root and use the `Other` framework preset; no frontend build command is needed.
+
+This configuration serves the frontend only. The current API is the Python `server.py` process and stores application data in local SQLite and `uploads/`; Vercel's static deployment does not run that process or provide persistent local storage. Scanner, account, complaint, and community API workflows therefore need a separately hosted backend with persistent database and file storage before they will work on a Vercel deployment.
+
 ## What works
 
 - Read-only scan of a public HTTP/HTTPS page with DNS and redirect destination checks, short timeouts, response size limits, and a restrictive outbound target policy.
