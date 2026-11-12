@@ -29,6 +29,11 @@ from trust_engine import SCANNER_VERSION, SCORING_WEIGHTS, make_finding, score_f
 from guidance_service import guidance_for
 from evidence_service import analyze_evidence, inspect_file, related_hosts, url_host
 from community_service import PUBLIC_STATUSES, community_search, public_counts, report_domain, safe_description
+from ai_services.website_content import analyze_website_content
+from ai_services.phishing import analyze_phishing
+from ai_services.report_analysis import analyze_report as analyze_report_intelligence
+from ai_services.provider import get_provider, provider_status
+from ai_services.learning import evaluate_predictions
 
 ROOT = Path(__file__).resolve().parent
 DB_PATH = ROOT / "trustshield.db"
@@ -142,6 +147,66 @@ def now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def persist_ai_results(conn, resource_type, resource_id, value, *, user_consented=False):
+    """Persist model provenance and validated outputs only; never store prompt/input text."""
+    saved = []
+    if isinstance(value, dict):
+        if value.get("analysis_type") and value.get("provider") not in {None, "", "none"}:
+            created = now()
+            domain_row = conn.execute("SELECT domain FROM scans WHERE id=?", (int(resource_id),)).fetchone() if resource_type == "scan" else conn.execute("SELECT domain FROM reports WHERE id=?", (int(resource_id),)).fetchone()
+            resource_domain = str(domain_row[0] if domain_row else "")[:253]
+            cursor = conn.execute(
+                "INSERT INTO ai_runs(resource_type,resource_id,domain,analysis_type,provider,model,model_version,prompt_version,input_sha256,status,result_json,usage_json,user_consented,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (resource_type, int(resource_id), resource_domain, str(value.get("analysis_type", ""))[:80], str(value.get("provider", ""))[:40],
+                 str(value.get("model", ""))[:120], str(value.get("model_version", "unknown"))[:80],
+                 str(value.get("prompt_version", ""))[:80], str(value.get("input_sha256", ""))[:64],
+                 str(value.get("status", "error"))[:30], json.dumps(value, ensure_ascii=False), json.dumps(value.get("usage", {})), int(user_consented), created))
+            value["analysis_id"] = cursor.lastrowid
+            saved.append(cursor.lastrowid)
+        for child in list(value.values()):
+            if isinstance(child, dict):
+                saved.extend(persist_ai_results(conn, resource_type, resource_id, child, user_consented=user_consented))
+    elif isinstance(value, list):
+        for child in value:
+            saved.extend(persist_ai_results(conn, resource_type, resource_id, child, user_consented=user_consented))
+    return saved
+
+
+def collect_report_evidence(report_id, report_row):
+    """Read only bounded files inside the private evidence directory."""
+    sources = []
+    if report_row["evidence_path"]:
+        sources.append((report_row["evidence_name"], report_row["evidence_path"], ""))
+    with db() as conn:
+        for item in conn.execute("SELECT evidence_name,evidence_path,mime_type FROM report_attachments WHERE report_id=? ORDER BY id DESC LIMIT 4", (report_id,)):
+            sources.append((item["evidence_name"], item["evidence_path"], item["mime_type"]))
+        for item in conn.execute("SELECT evidence_name,evidence_path FROM report_followups WHERE report_id=? AND evidence_path<>'' ORDER BY id DESC LIMIT 4", (report_id,)):
+            sources.append((item["evidence_name"], item["evidence_path"], ""))
+    result = []
+    allowed = {".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".pdf": "application/pdf", ".txt": "text/plain"}
+    base = UPLOAD_DIR.resolve()
+    for name, relative, mime in sources:
+        if len(result) >= 4:
+            break
+        path = (UPLOAD_DIR / relative).resolve()
+        if not relative or not path.is_relative_to(base) or not path.is_file() or path.stat().st_size > 2_097_152:
+            continue
+        mime = mime or allowed.get(path.suffix.lower(), "")
+        if mime not in UPLOAD_MIMES:
+            continue
+        result.append({"name": name, "mime_type": mime, "content": path.read_bytes()})
+    return result
+
+
+def similar_report_candidates(conn, report):
+    domain = report_domain(str(report.get("url", "")))
+    candidates = [dict(item) for item in conn.execute(
+        "SELECT id,url,category,business,details,incident_date FROM reports WHERE id<>? ORDER BY id DESC LIMIT 300",
+        (int(report.get("id", 0)),))]
+    return [item for item in candidates if report_domain(item["url"]) == domain or
+            (report.get("business") and str(report["business"]).casefold() in str(item.get("business", "")).casefold())]
+
+
 @contextmanager
 def db():
     conn = sqlite3.connect(DB_PATH)
@@ -216,6 +281,25 @@ def init_db():
                 contact TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'Pending review',
                 reviewed_by INTEGER REFERENCES users(id), reviewed_at TEXT NOT NULL DEFAULT '', review_note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS ai_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, resource_type TEXT NOT NULL, resource_id INTEGER NOT NULL,
+                domain TEXT NOT NULL DEFAULT '', analysis_type TEXT NOT NULL, provider TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '',
+                model_version TEXT NOT NULL DEFAULT 'unknown', prompt_version TEXT NOT NULL DEFAULT '',
+                input_sha256 TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, result_json TEXT NOT NULL DEFAULT '{}', usage_json TEXT NOT NULL DEFAULT '{}',
+                user_consented INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS ai_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER NOT NULL REFERENCES ai_runs(id),
+                moderator_id INTEGER NOT NULL REFERENCES users(id), finding_key TEXT NOT NULL,
+                decision TEXT NOT NULL CHECK(decision IN ('accepted','rejected')), note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS ai_training_labels (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, report_id INTEGER NOT NULL REFERENCES reports(id),
+                run_id INTEGER REFERENCES ai_runs(id), moderator_id INTEGER NOT NULL REFERENCES users(id),
+                category TEXT NOT NULL, label TEXT NOT NULL, review_note TEXT NOT NULL DEFAULT '',
+                partition_name TEXT NOT NULL CHECK(partition_name IN ('training','evaluation','unassigned')),
+                created_at TEXT NOT NULL
+            );
         """)
         columns = {row[1] for row in conn.execute("PRAGMA table_info(reports)")}
         additions = {
@@ -227,7 +311,8 @@ def init_db():
             "evidence_path": "TEXT NOT NULL DEFAULT ''", "moderated_by": "INTEGER REFERENCES users(id)",
             "moderated_at": "TEXT NOT NULL DEFAULT ''", "moderation_note": "TEXT NOT NULL DEFAULT ''"
             , "evidence_analysis": "TEXT NOT NULL DEFAULT '{}'", "public_update": "TEXT NOT NULL DEFAULT ''",
-            "domain": "TEXT NOT NULL DEFAULT ''", "public_summary": "TEXT NOT NULL DEFAULT ''"
+            "domain": "TEXT NOT NULL DEFAULT ''", "public_summary": "TEXT NOT NULL DEFAULT ''",
+            "ai_analysis": "TEXT NOT NULL DEFAULT '{}'", "ai_consent": "INTEGER NOT NULL DEFAULT 0"
         }
         for name, spec in additions.items():
             if name not in columns:
@@ -236,6 +321,10 @@ def init_db():
         if "user_id" not in scan_columns:
             conn.execute("ALTER TABLE scans ADD COLUMN user_id INTEGER REFERENCES users(id)")
         for name, spec in {"scanner_version": "TEXT NOT NULL DEFAULT '1.0.0'", "calculation": "TEXT NOT NULL DEFAULT '{}'"}.items():
+            if name not in scan_columns:
+                conn.execute(f"ALTER TABLE scans ADD COLUMN {name} {spec}")
+        scan_columns = {row[1] for row in conn.execute("PRAGMA table_info(scans)")}
+        for name, spec in {"ai_analysis": "TEXT NOT NULL DEFAULT '{}'", "phishing_analysis": "TEXT NOT NULL DEFAULT '{}'"}.items():
             if name not in scan_columns:
                 conn.execute(f"ALTER TABLE scans ADD COLUMN {name} {spec}")
         conn.execute("CREATE INDEX IF NOT EXISTS reports_url ON reports(url)")
@@ -247,6 +336,8 @@ def init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS followups_report_created ON report_followups(report_id,created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS evidence_hash_lookup ON evidence_hashes(sha256)")
         conn.execute("CREATE INDEX IF NOT EXISTS attachments_report_created ON report_attachments(report_id,created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS ai_runs_resource ON ai_runs(resource_type,resource_id,created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS ai_training_partition ON ai_training_labels(partition_name,category,report_id)")
         conn.execute("UPDATE reports SET status='More Information Required' WHERE status='Evidence Requested'")
         conn.execute("UPDATE reports SET status='Partially Supported' WHERE status='Partially Verified'")
         conn.execute("UPDATE reports SET status='Verified Findings' WHERE status='Verified'")
@@ -328,6 +419,9 @@ class PageParser(HTMLParser):
         self.title = False
         self.title_text = []
         self.ignored_depth = 0
+        self.password_input_count = 0
+        self.password_form_actions = []
+        self.current_form_action = ""
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
@@ -337,10 +431,17 @@ class PageParser(HTMLParser):
             self.ignored_depth += 1
         if tag == "a" and attrs.get("href"):
             self.links.append((attrs["href"], attrs.get("aria-label", "")))
+        if tag == "form":
+            self.current_form_action = attrs.get("action", "")
+        if tag == "input" and str(attrs.get("type", "")).lower() == "password":
+            self.password_input_count += 1
+            self.password_form_actions.append(self.current_form_action)
 
     def handle_endtag(self, tag):
         if tag == "title":
             self.title = False
+        if tag == "form":
+            self.current_form_action = ""
         if tag in {"script", "style", "noscript", "svg"} and self.ignored_depth:
             self.ignored_depth -= 1
 
@@ -466,6 +567,8 @@ def scan_site(raw, user_id=None):
             add("connection.tls_valid", "TLS certificate", "Connection security", UNKNOWN,
                 "The HTTPS response was received, but certificate details could not be extracted.", source="TLS connection")
 
+    visible_text, title, text, links = "", "", "", []
+    password_input_count, password_form_actions = 0, []
     if status_code is None:
         add("http.response", "Page retrieval", "HTTP security", UNKNOWN,
             "The page response could not be retrieved. Content and HTTP configuration checks are unknown, not failed.",
@@ -474,7 +577,7 @@ def scan_site(raw, user_id=None):
                            for name, _validator in __import__("security_headers").VALIDATORS]
         for item in header_findings:
             add(f"header.{item['name'].lower()}", item["name"], "HTTP security", UNKNOWN, item["explanation"], source="No response")
-        content_type, title, text, links = "", "", "", []
+        content_type = ""
     else:
         if 200 <= status_code < 400:
             response_status, contribution = PASS, 0
@@ -536,9 +639,12 @@ def scan_site(raw, user_id=None):
                 parser.feed(body.decode(charset, errors="replace"))
             except (LookupError, UnicodeError, AttributeError):
                 parser.feed(body.decode("utf-8", errors="replace"))
-        text = " ".join(parser.text).lower()
+        visible_text = " ".join(parser.text)[:12_000]
+        text = visible_text.lower()
         links = [urllib.parse.urljoin(final_url, href).lower() + " " + label.lower() for href, label in parser.links]
         title = " ".join(parser.title_text)[:160]
+        password_input_count = parser.password_input_count
+        password_form_actions = [urllib.parse.urljoin(final_url, action) if action else final_url for action in parser.password_form_actions]
 
     final_origin = (final_parts.scheme.lower(), final_parts.hostname.lower() if final_parts.hostname else "", final_parts.port)
     cross_origin = any(
@@ -601,18 +707,28 @@ def scan_site(raw, user_id=None):
         source="Submitted URL hostname", evidence=matched or domain,
         contribution=SCORING_WEIGHTS["url.impersonation_pattern"] if matched else 0)
 
+    phishing_analysis = analyze_phishing(url, page_text=visible_text, password_input_count=password_input_count,
+                                         password_form_actions=password_form_actions, redirects=redirect_handler.hops)
+    for signal in phishing_analysis["findings"]:
+        add(signal["id"], signal["name"], "Phishing and impersonation", WARNING,
+            signal["explanation"] + " " + signal["recommended_action"], source=signal["source"], evidence=signal["evidence"])
+    ai_analysis = analyze_website_content(final_display, title, visible_text)
+
     assessment = score_findings(checks, sufficient_data=status_code is not None)
     score, label, summary = assessment["score"], assessment["label"], assessment["summary"]
     created_at = now()
     with db() as conn:
-        cur = conn.execute("INSERT INTO scans(url,domain,score,label,summary,checks,created_at,user_id,scanner_version,calculation) VALUES(?,?,?,?,?,?,?,?,?,?)",
+        cur = conn.execute("INSERT INTO scans(url,domain,score,label,summary,checks,created_at,user_id,scanner_version,calculation,ai_analysis,phishing_analysis) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                            (url, domain, score, label, summary, json.dumps(checks), created_at, user_id,
-                            SCANNER_VERSION, json.dumps(assessment["calculation"])))
+                            SCANNER_VERSION, json.dumps(assessment["calculation"]), json.dumps(ai_analysis), json.dumps(phishing_analysis)))
         scan_id = cur.lastrowid
+        persist_ai_results(conn, "scan", scan_id, ai_analysis)
+        conn.execute("UPDATE scans SET ai_analysis=? WHERE id=?", (json.dumps(ai_analysis), scan_id))
     return {"id": scan_id, "url": url, "domain": domain, "title": title, "score": score,
             "label": label, "summary": summary, "checks": checks, "findings": checks,
             "calculation": assessment["calculation"], "scanner_version": SCANNER_VERSION,
-            "created_at": created_at, "status_code": status_code, "final_url": final_display}
+            "created_at": created_at, "status_code": status_code, "final_url": final_display,
+            "ai_analysis": ai_analysis, "phishing_analysis": phishing_analysis}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -646,6 +762,10 @@ class Handler(BaseHTTPRequestHandler):
             return dict(row) if row else None
 
     def guest_token_hashes(self):
+        # Guest tokens belong to an anonymous browser session. Never let a signed-in
+        # account inherit that browser's guest reports or notifications.
+        if self.current_user():
+            return []
         raw = self.headers.get("X-TrustShield-Guest-Tokens", "")
         tokens = [token.strip() for token in raw.split(",")[:30] if token.strip()]
         return [token_digest(token) for token in tokens if len(token) <= 100]
@@ -689,6 +809,32 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed_request = urllib.parse.urlsplit(self.path)
         path = parsed_request.path
+        if path == "/api/ai/status":
+            status = provider_status()
+            status["capabilities"] = ["website content analysis", "complaint assistance", "evidence text analysis"]
+            status["evidence_privacy"] = "Private report/evidence text is sent to the configured provider only after explicit user consent."
+            return self.send_json(status)
+        if path == "/api/admin/ai/evaluation":
+            user = self.require_user("admin")
+            if not user:
+                return
+            with db() as conn:
+                rows = conn.execute("""
+                    SELECT label.report_id,label.category,label.label,run.result_json
+                    FROM ai_training_labels AS label
+                    LEFT JOIN ai_runs AS run ON run.id=label.run_id
+                    WHERE label.partition_name='evaluation'
+                      AND label.id=(SELECT MAX(latest.id) FROM ai_training_labels AS latest WHERE latest.report_id=label.report_id)
+                    ORDER BY label.id
+                """).fetchall()
+            records = []
+            for row in rows:
+                try:
+                    result = json.loads(row["result_json"] or "{}")
+                except json.JSONDecodeError:
+                    result = {}
+                records.append({"case_id": row["report_id"], "category": row["category"], "label": row["label"], "prediction": result.get("triage")})
+            return self.send_json(evaluate_predictions(records))
         if path == "/api/community":
             params = urllib.parse.parse_qs(parsed_request.query)
             query = str(params.get("q", [""])[0])[:160]
@@ -734,7 +880,7 @@ class Handler(BaseHTTPRequestHandler):
             user = self.current_user()
             guest_hashes = self.guest_token_hashes()
             with db() as conn:
-                scans = [dict(row) for row in conn.execute("SELECT id,url,domain,score,label,summary,checks,created_at,scanner_version,calculation FROM scans WHERE user_id=? ORDER BY id DESC LIMIT 20", (user["id"],))] if user else []
+                scans = [dict(row) for row in conn.execute("SELECT id,url,domain,score,label,summary,checks,created_at,scanner_version,calculation,ai_analysis,phishing_analysis FROM scans WHERE user_id=? ORDER BY id DESC LIMIT 20", (user["id"],))] if user else []
                 placeholders_public = ",".join("?" for _ in PUBLIC_STATUSES)
                 reports = [dict(row) for row in conn.execute(f"SELECT id,url,category,details,business,status,created_at,evidence_name FROM reports WHERE status IN ({placeholders_public}) ORDER BY id DESC LIMIT 100", PUBLIC_STATUSES)]
                 if user:
@@ -776,6 +922,8 @@ class Handler(BaseHTTPRequestHandler):
                 scan["checks"] = json.loads(scan["checks"])
                 scan["findings"] = scan["checks"]
                 scan["calculation"] = json.loads(scan.get("calculation") or "{}")
+                scan["ai_analysis"] = json.loads(scan.get("ai_analysis") or "{}")
+                scan["phishing_analysis"] = json.loads(scan.get("phishing_analysis") or "{}")
                 scan["label"] = scan["label"]
             admin_view = bool(user and user["role"] == "admin")
             for report in reports:
@@ -834,6 +982,7 @@ class Handler(BaseHTTPRequestHandler):
             result["is_admin"] = is_admin
             result["available_transitions"] = sorted(STATUS_TRANSITIONS.get(result["status"], set())) if is_admin else []
             result["evidence_analysis"] = json.loads(result.get("evidence_analysis") or "{}")
+            result["ai_analysis"] = json.loads(result.get("ai_analysis") or "{}")
             result["guidance"] = guidance_for(result["category"])
             result["completed_guidance_actions"] = [item["action_id"] for item in guidance_actions if item["completed"]]
             result["verification_history"] = [{"old_status": item["old_status"], "new_status": item["new_status"], "event_label": "Additional information received" if item["old_status"] == item["new_status"] and item["note"] == "Reporter supplied additional information." else item["new_status"], "created_at": item["created_at"], **({"note": item["note"]} if is_admin else {})} for item in history_rows]
@@ -847,7 +996,7 @@ class Handler(BaseHTTPRequestHandler):
             result["evidence_summary"] = "Evidence submitted; basic format and consistency checks only. Authenticity and claim support require human review." if result["evidence_submitted"] else "No supporting file has been submitted."
             result["description"] = safe_description(result.get("details", ""))
             if not is_admin and not is_owner:
-                for key in ("details", "amount", "reference", "links", "evidence_name", "evidence_path", "evidence", "email", "user_id", "guest_token_hash", "moderation_note", "moderated_by", "moderated_at", "evidence_analysis", "followups", "disputes"):
+                for key in ("details", "amount", "reference", "links", "evidence_name", "evidence_path", "evidence", "email", "user_id", "guest_token_hash", "moderation_note", "moderated_by", "moderated_at", "evidence_analysis", "ai_analysis", "ai_consent", "followups", "disputes"):
                     result.pop(key, None)
                 result["details"] = result.pop("description")
             else:
@@ -944,6 +1093,84 @@ class Handler(BaseHTTPRequestHandler):
         path = urllib.parse.urlsplit(self.path).path
         try:
             payload = self.read_json()
+            report_ai = re.fullmatch(r"/api/reports/(\d+)/ai-analysis", path)
+            if report_ai:
+                if not self.rate_limit("ai_report", 5):
+                    return
+                report_id = int(report_ai.group(1))
+                user = self.current_user()
+                guest_hashes = self.guest_token_hashes()
+                with db() as conn:
+                    row = conn.execute("SELECT * FROM reports WHERE id=?", (report_id,)).fetchone()
+                    if not row or not (actor_owns_report(row, user, guest_hashes) or (user and user["role"] == "admin")):
+                        return self.send_json({"error": "Report not found."}, 404)
+                    owner = actor_owns_report(row, user, guest_hashes)
+                    if owner and payload.get("consent") is not True:
+                        return self.send_json({"error": "Explicit consent is required before report text or extracted evidence is sent to the configured AI provider."}, 400)
+                    if not owner and not row["ai_consent"]:
+                        return self.send_json({"error": "The reporter has not consented to AI processing of private evidence."}, 403)
+                    report = {key: row[key] for key in ("id", "url", "category", "details", "business", "incident_date", "domain", "links")}
+                    report["evidence_checks"] = json.loads(row["evidence_analysis"] or "{}").get("checks", [])
+                    candidates = [dict(item) for item in conn.execute("SELECT id,url,category,business,details,incident_date FROM reports WHERE id<>? ORDER BY id DESC LIMIT 300", (report_id,))]
+                    followup_rows = conn.execute("SELECT details FROM report_followups WHERE report_id=? ORDER BY id", (report_id,)).fetchall()
+                if followup_rows:
+                    report["details"] = (report["details"] + "\nAdditional reporter updates: " + "\n".join(item["details"] for item in followup_rows))[:8_000]
+                files = collect_report_evidence(report_id, row)
+                intelligence = analyze_report_intelligence(report, files, candidates, consent=True)
+                with db() as conn:
+                    persist_ai_results(conn, "report", report_id, intelligence, user_consented=True)
+                    conn.execute("UPDATE reports SET ai_analysis=?,ai_consent=1 WHERE id=?", (json.dumps(intelligence), report_id))
+                return self.send_json({"ok": True, "ai_analysis": intelligence, "report_status_unchanged": True})
+            if path == "/api/admin/ai/feedback":
+                user = self.require_user("admin")
+                if not user:
+                    return
+                try:
+                    run_id = int(payload.get("run_id", 0))
+                except (ValueError, TypeError):
+                    run_id = 0
+                finding_key = str(payload.get("finding_key", ""))[:100]
+                decision = str(payload.get("decision", ""))
+                note = str(payload.get("note", "")).strip()[:1000]
+                if not run_id or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,100}", finding_key) or decision not in {"accepted", "rejected"}:
+                    return self.send_json({"error": "Choose a valid AI analysis finding and accept/reject decision."}, 400)
+                with db() as conn:
+                    run = conn.execute("SELECT id,resource_type,analysis_type,result_json FROM ai_runs WHERE id=?", (run_id,)).fetchone()
+                    if not run or run["resource_type"] != "report":
+                        return self.send_json({"error": "AI analysis not found."}, 404)
+                    finding_match = re.fullmatch(r"risk_indicators:(\d+)", finding_key)
+                    try:
+                        run_result = json.loads(run["result_json"] or "{}")
+                    except json.JSONDecodeError:
+                        run_result = {}
+                    if run["analysis_type"] != "complaint_intelligence" or not finding_match or int(finding_match.group(1)) >= len(run_result.get("risk_indicators", [])):
+                        return self.send_json({"error": "That finding is not part of this complaint analysis."}, 400)
+                    cursor = conn.execute("INSERT INTO ai_feedback(run_id,moderator_id,finding_key,decision,note,created_at) VALUES(?,?,?,?,?,?)", (run_id, user["id"], finding_key, decision, note, now()))
+                return self.send_json({"ok": True, "feedback_id": cursor.lastrowid})
+            report_outcome = re.fullmatch(r"/api/admin/reports/(\d+)/ai-outcome", path)
+            if report_outcome:
+                user = self.require_user("admin")
+                if not user:
+                    return
+                report_id = int(report_outcome.group(1))
+                label = str(payload.get("label", "")).strip().lower()
+                partition = str(payload.get("partition", "unassigned"))
+                review_note = str(payload.get("note", "")).strip()[:1000]
+                labels = {"confirmed malicious activity", "supported complaint", "insufficient evidence", "inaccurate complaint", "legitimate business", "disputed", "unresolved"}
+                if label not in labels or partition not in {"training", "evaluation", "unassigned"} or len(review_note) < 12:
+                    return self.send_json({"error": "Choose a supported human outcome label, dataset partition, and add a review note of at least 12 characters."}, 400)
+                if label in {"insufficient evidence", "disputed", "unresolved"} and partition != "unassigned":
+                    return self.send_json({"error": "Disputed, unresolved, or insufficient-evidence outcomes must remain outside training and evaluation sets."}, 400)
+                with db() as conn:
+                    report = conn.execute("SELECT category FROM reports WHERE id=?", (report_id,)).fetchone()
+                    if not report:
+                        return self.send_json({"error": "Report not found."}, 404)
+                    prior = conn.execute("SELECT DISTINCT partition_name FROM ai_training_labels WHERE report_id=? AND partition_name<>'unassigned'", (report_id,)).fetchall()
+                    if partition != "unassigned" and any(item["partition_name"] != partition for item in prior):
+                        return self.send_json({"error": "A report cannot appear in both training and evaluation partitions."}, 409)
+                    latest = conn.execute("SELECT id FROM ai_runs WHERE resource_type='report' AND resource_id=? AND analysis_type='complaint_intelligence' AND status='available' ORDER BY id DESC LIMIT 1", (report_id,)).fetchone()
+                    cursor = conn.execute("INSERT INTO ai_training_labels(report_id,run_id,moderator_id,category,label,review_note,partition_name,created_at) VALUES(?,?,?,?,?,?,?,?)", (report_id, latest["id"] if latest else None, user["id"], report["category"], label, review_note, partition, now()))
+                return self.send_json({"ok": True, "label_id": cursor.lastrowid, "partition": partition})
             notify_read = re.fullmatch(r"/api/notifications/(\d+)/read", path)
             if notify_read:
                 user = self.current_user()
@@ -1061,6 +1288,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json({"error": "Please describe what happened (at least 12 characters)."}, 400)
                 if not payload.get("agree"):
                     return self.send_json({"error": "Please confirm the community report notice."}, 400)
+                ai_consent = payload.get("ai_consent") is True
                 incident_date = str(payload.get("incident_date", ""))[:10]
                 if incident_date:
                     try: parsed_incident_date = datetime.strptime(incident_date, "%Y-%m-%d").date()
@@ -1091,11 +1319,16 @@ class Handler(BaseHTTPRequestHandler):
                     if duplicate:
                         return self.send_json({"error": "A matching report is already on file. Add new information by contacting the review team."}, 409)
                     domain = report_domain(url)
-                    related_reports = [dict(item) for item in conn.execute("SELECT id,details,category,url,incident_date FROM reports WHERE category=? ORDER BY id DESC LIMIT 200", (category,)) if report_domain(item["url"]) == domain]
+                    pattern_candidates = [dict(item) for item in conn.execute("SELECT id,details,category,url,incident_date,business FROM reports ORDER BY id DESC LIMIT 300")]
+                    related_reports = [item for item in pattern_candidates if item["category"] == category and report_domain(item["url"]) == domain]
                     duplicate_hashes = {item[0] for item in conn.execute("SELECT sha256 FROM evidence_hashes")}
                     analysis = analyze_evidence(candidate, uploaded_files, related_reports, duplicate_hashes)
-                    cur = conn.execute("INSERT INTO reports(url,category,details,evidence,created_at,business,incident_date,amount,reference,links,status,user_id,evidence_name,evidence_path,guest_token_hash,evidence_analysis,domain,public_summary) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (url, category, details, "", created_at, str(payload.get("business", ""))[:120].strip(), incident_date, str(payload.get("amount", ""))[:60].strip(), str(payload.get("reference", ""))[:120].strip(), related, "Submitted", user["id"] if user else None, evidence_name, evidence_path, token_digest(guest_token) if guest_token else "", json.dumps(analysis), domain, safe_description(details)[:240]))
+                    candidate.update({"domain": domain, "business": str(payload.get("business", ""))[:120].strip()})
+                    ai_intelligence = analyze_report_intelligence(candidate, uploaded_files, pattern_candidates, consent=ai_consent)
+                    cur = conn.execute("INSERT INTO reports(url,category,details,evidence,created_at,business,incident_date,amount,reference,links,status,user_id,evidence_name,evidence_path,guest_token_hash,evidence_analysis,domain,public_summary,ai_analysis,ai_consent) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (url, category, details, "", created_at, str(payload.get("business", ""))[:120].strip(), incident_date, str(payload.get("amount", ""))[:60].strip(), str(payload.get("reference", ""))[:120].strip(), related, "Submitted", user["id"] if user else None, evidence_name, evidence_path, token_digest(guest_token) if guest_token else "", json.dumps(analysis), domain, safe_description(details)[:240], json.dumps(ai_intelligence), int(ai_consent)))
                     report_id = cur.lastrowid
+                    persist_ai_results(conn, "report", report_id, ai_intelligence, user_consented=ai_consent)
+                    conn.execute("UPDATE reports SET ai_analysis=? WHERE id=?", (json.dumps(ai_intelligence), report_id))
                     for index, item in enumerate(uploaded_files):
                         (UPLOAD_DIR / item["path"]).write_bytes(item["content"])
                         if index > 0:
@@ -1103,7 +1336,7 @@ class Handler(BaseHTTPRequestHandler):
                         conn.execute("INSERT INTO evidence_hashes(report_id,sha256,evidence_name,created_at) VALUES(?,?,?,?)", (report_id, item["sha256"], item["name"], created_at))
                     saved = conn.execute("SELECT id,user_id,guest_token_hash FROM reports WHERE id=?", (report_id,)).fetchone()
                     notify_report_owner(conn, saved, "submitted", "Report submitted", "Your report is saved as Submitted and has not been treated as verified.")
-                response = {"id": report_id, "reference_code": f"TSH-{report_id:06d}", "message": "Your report was saved for review.", "created_at": created_at, "guidance": guidance_for(category), "evidence_analysis": analysis}
+                response = {"id": report_id, "reference_code": f"TSH-{report_id:06d}", "message": "Your report was saved for review.", "created_at": created_at, "guidance": guidance_for(category), "evidence_analysis": analysis, "ai_analysis": ai_intelligence}
                 if guest_token:
                     response["guest_token"] = guest_token
                 return self.send_json(response, 201)

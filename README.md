@@ -39,8 +39,10 @@ This configuration serves the frontend only. The current API is the Python `serv
 - Reports have stable references, a human review timeline, structured evidence checks, likely-duplicate hints, secure attachments, owner-only follow-up submissions, and accuracy/dispute requests.
 - Moderation uses distinct states: Submitted, Under Review, More Information Required, Partially Supported, Verified Findings, Inconsistencies Found, Rejected, and Disputed. Status changes require an internal reason, are audit logged, and persist owner notifications; requests for more information also include a separate public message.
 - Community search filters by website, domain, business, category, and status; sorts by latest or same-domain discussion count; and uses database-backed pagination. Website scan results include database-backed report counts and review statuses.
-- User dashboards show actual scan/report totals, review queues, pending guidance, report history, and unread/read notifications. Admin views include queue metrics, evidence triage, related reports, and dispute/accuracy review.
+- User dashboards show actual scan/report totals, review queues, pending guidance, report history, and unread/read notifications. Admin views include queue metrics, evidence triage, related reports, dispute/accuracy review, and CSV export for the currently filtered report page.
 - Users may attach up to 3 PNG, JPG, WEBP, PDF, or TXT files at 2 MB each. Files are stored outside the public web directory and downloads are restricted to the report owner or an administrator.
+
+The community feed is shared by design. The dashboard's **My reports**, scan history, and notifications are owner-scoped; anonymous guest reports are available only while signed out in the browser that holds their private tokens.
 
 ## Honest limitations
 

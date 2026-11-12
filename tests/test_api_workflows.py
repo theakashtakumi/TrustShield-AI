@@ -215,6 +215,43 @@ class ApiWorkflowTests(unittest.TestCase):
         history.do_GET()
         self.assertEqual(history.body()["my_reports"][0]["id"], result["id"])
 
+    def test_guest_reports_do_not_leak_into_signed_in_accounts(self):
+        guest_submit = FakeRequestHandler("POST", "/api/reports", {
+            "url": "https://private-guest.example", "category": "Other concern",
+            "details": "A guest report should stay with the guest token on this browser.", "agree": True,
+        })
+        with patch.object(server, "safe_public_host"):
+            guest_submit.do_POST()
+        guest_report = guest_submit.body()
+
+        registration = FakeRequestHandler("POST", "/api/auth/register", {
+            "name": "Member", "email": "member@example.com", "password": "long-password-123",
+        })
+        registration.do_POST()
+        cookie = next(line for line in registration.response_headers().split("\r\n") if line.lower().startswith("set-cookie:"))
+        session_cookie = cookie.split(":", 1)[1].strip().split(";", 1)[0]
+
+        history = FakeRequestHandler("GET", "/api/history", cookie=session_cookie)
+        history.headers["X-TrustShield-Guest-Tokens"] = guest_report["guest_token"]
+        history.do_GET()
+        self.assertEqual(history.body()["my_reports"], [])
+        self.assertEqual(history.body()["overview"]["reports"], 0)
+
+        notifications = FakeRequestHandler("GET", "/api/notifications", cookie=session_cookie)
+        notifications.headers["X-TrustShield-Guest-Tokens"] = guest_report["guest_token"]
+        notifications.do_GET()
+        self.assertEqual(notifications.body()["notifications"], [])
+
+        private_detail = FakeRequestHandler("GET", f"/api/reports/{guest_report['id']}", cookie=session_cookie)
+        private_detail.headers["X-TrustShield-Guest-Tokens"] = guest_report["guest_token"]
+        private_detail.do_GET()
+        self.assertEqual(private_detail.body()["error"], "Report not found.")
+
+        guest_history = FakeRequestHandler("GET", "/api/history")
+        guest_history.headers["X-TrustShield-Guest-Tokens"] = guest_report["guest_token"]
+        guest_history.do_GET()
+        self.assertEqual(guest_history.body()["my_reports"][0]["id"], guest_report["id"])
+
 
 if __name__ == "__main__":
     unittest.main()

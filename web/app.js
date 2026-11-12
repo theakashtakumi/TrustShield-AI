@@ -1,6 +1,6 @@
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-const state = { user: null, scans: [], reports: [], ownReports: [], pendingEvidence: [], communityPage: 1, communityPages: 0, activityTab: 'scans', search: '', filter: 'all', category: 'all', sort: 'latest', notifications: [], toastTimer: null };
+const state = { user: null, scans: [], reports: [], ownReports: [], pendingEvidence: [], communityPage: 1, communityPages: 0, activityTab: 'scans', search: '', filter: 'all', category: 'all', sort: 'latest', notifications: [], aiStatus: null, toastTimer: null };
 const statuses = ['Submitted', 'Under Review', 'More Information Required', 'Partially Supported', 'Verified Findings', 'Inconsistencies Found', 'Rejected', 'Disputed'];
 
 function storedGuestReports() {
@@ -23,7 +23,7 @@ function escapeHtml(value = '') {
 }
 
 async function api(path, options = {}) {
-  const guestTokens = storedGuestReports().map((item) => item.token).join(',');
+  const guestTokens = state.user ? '' : storedGuestReports().map((item) => item.token).join(',');
   const response = await fetch(path, { credentials: 'same-origin', ...options,
     headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(guestTokens ? { 'X-TrustShield-Guest-Tokens': guestTokens } : {}), ...(options.headers || {}) } });
   const body = await response.json().catch(() => ({}));
@@ -77,6 +77,24 @@ function riskNextStep(label) {
   return 'Use a payment method with buyer protection, read the full terms, and verify the seller. These checks cannot guarantee a safe transaction.';
 }
 
+function modelConfidence(value) {
+  if (!['low', 'moderate', 'high'].includes(value)) return '';
+  return `<small class="ai-confidence">Model-reported confidence: ${escapeHtml(value)} · uncalibrated</small>`;
+}
+
+function renderWebsiteAi(ai) {
+  if (!ai || ai.status === 'skipped') return `<section class="ai-panel"><div class="ai-panel-heading"><span class="ai-label">AI-ASSISTED ANALYSIS</span><h3>Website content intelligence</h3></div><p>${escapeHtml(ai?.message || 'No page text was available for analysis.')}</p></section>`;
+  const findings = (ai.findings || []).map((item) => `<details class="ai-finding"><summary><span class="ai-severity severity-${escapeHtml(item.severity)}">${escapeHtml(item.severity)}</span><b>${escapeHtml(item.name)}</b></summary><p>${escapeHtml(item.description)}</p>${item.evidence ? `<blockquote>${escapeHtml(item.evidence)}</blockquote>` : ''}<p><b>Why it may matter:</b> ${escapeHtml(item.reasoning || '')}</p><p><b>Suggested next step:</b> ${escapeHtml(item.recommended_action || '')}</p>${modelConfidence(item.confidence)}</details>`).join('');
+  const unavailable = ai.status !== 'available';
+  return `<section class="ai-panel"><div class="ai-panel-heading"><span class="ai-label">AI-ASSISTED ANALYSIS</span><h3>Website content intelligence</h3><span class="ai-state ${unavailable ? 'unavailable' : ''}">${unavailable ? 'Unavailable' : 'Model-assisted'}</span></div><p>${escapeHtml(ai.summary || ai.message || '')}</p>${unavailable ? `<p class="ai-muted">${escapeHtml(ai.message || 'AI analysis is unavailable; automated security checks remain available.')}</p>` : `<div class="ai-run-meta">${escapeHtml(ai.provider)} · ${escapeHtml(ai.model)} · prompt ${escapeHtml(ai.prompt_version || 'unknown')}</div>${findings || '<p>No specific text-based signal was returned. This does not mean the site is safe.</p>'}<p class="ai-muted">${escapeHtml(ai.message || 'AI observations are not verified findings.')}</p>`}<details class="ai-limits"><summary>About this analysis</summary><p>Only bounded text from the retrieved public page was analyzed. Page content is untrusted input. Promotions and urgency are not proof of fraud; no AI result changes the trust score.</p></details></section>`;
+}
+
+function renderPhishingPanel(analysis) {
+  if (!analysis) return '';
+  const findings = (analysis.findings || []).map((item) => `<article class="phishing-finding"><span class="ai-severity severity-${escapeHtml(item.severity)}">${escapeHtml(item.severity)}</span><div><b>${escapeHtml(item.name)}</b><p>${escapeHtml(item.explanation)}</p>${item.evidence ? `<small>Observed: ${escapeHtml(item.evidence)}</small>` : ''}<p>${escapeHtml(item.recommended_action)}</p></div></article>`).join('');
+  return `<section class="phishing-panel"><div class="ai-panel-heading"><span class="ai-label">AUTOMATED HEURISTIC</span><h3>Phishing and brand signals</h3></div>${findings || '<p>No selected URL or credential-form heuristic matched.</p>'}<p class="ai-muted">${escapeHtml(analysis.assessment || '')} ${escapeHtml(analysis.threat_intelligence?.message || 'No external threat feed was queried.')}</p></section>`;
+}
+
 function renderResult(result) {
   const area = $('#results-section');
   const circumference = 264;
@@ -95,6 +113,8 @@ function renderResult(result) {
     <article class="result-summary"><div class="result-score"><div class="result-ring ${scoreColor}"><svg viewBox="0 0 100 100"><circle class="ring-track" cx="50" cy="50" r="42"/><circle class="ring-progress" cx="50" cy="50" r="42" style="stroke-dasharray:${progress} ${circumference}"/></svg><div><strong>${result.label === 'Insufficient Data' ? '—' : escapeHtml(result.score)}</strong><small>trust score</small></div></div><div class="result-score-copy"><span class="risk-badge ${riskClass(result.label)}">${escapeHtml(result.label)}</span><span class="result-domain">${escapeHtml(result.domain)}</span><span class="result-meta">Scanned ${dateLabel(result.created_at)}</span></div></div>
     <div class="result-explanation"><strong>${escapeHtml(result.summary)}</strong><p>Technical security signals do not establish who operates a business. Unknown or unavailable checks add no risk points. Score: 100 minus ${Number(result.calculation?.warning_points || 0)} weighted warning points; this is a prioritization aid, not a probability.</p><a class="method-link" href="#faq">How to read this report ↗</a><div class="result-meta">Scanner ${escapeHtml(result.scanner_version || 'unknown')}${result.title ? ` · ${escapeHtml(result.title)}` : ''}${result.status_code ? ` · HTTP ${Number(result.status_code)}` : ''}</div></div></article>
     <div class="result-block"><div class="result-block-heading"><h3>What we checked</h3><span>${(result.findings || result.checks || []).length} observations · expand a finding for evidence</span></div>${findings || '<div class="activity-empty">No page checks were available for this scan.</div>'}</div>
+    ${renderWebsiteAi(result.ai_analysis)}
+    ${renderPhishingPanel(result.phishing_analysis)}
     <div class="result-block"><div class="result-block-heading"><h3>Community activity</h3><span>Database-backed reports · allegations are not proof</span></div><div id="scan-community-activity" class="community-activity"><div class="skeleton" style="height:70px"></div></div></div>
     <div class="recommendation"><strong>What you can do next</strong><p>${escapeHtml(riskNextStep(result.label))}</p></div>`;
   area.hidden = false;
@@ -162,7 +182,8 @@ function renderReports() {
       panel.id = 'admin-panel'; panel.className = 'admin-panel';
       $('#community').insertBefore(panel, $('.community-toolbar'));
     }
-    $('#admin-panel').innerHTML = `<div><span>TOTAL REPORTS</span><b>${Number(state.adminStats.reports)}</b></div><div><span>PENDING REVIEW</span><b>${Number(state.adminStats.review_queue)}</b></div><div><span>UNDER INVESTIGATION</span><b>${Number(state.adminStats.under_investigation)}</b></div><div><span>VERIFIED FINDINGS</span><b>${Number(state.adminStats.verified)}</b></div><div><span>DISPUTED REPORTS</span><b>${Number(state.adminStats.disputed)}</b></div><div><span>OPEN ACCURACY REQUESTS</span><b>${Number(state.adminStats.pending_flags)}</b></div>`;
+    const evaluation = state.aiEvaluation?.overall;
+    $('#admin-panel').innerHTML = `<div><span>TOTAL REPORTS</span><b>${Number(state.adminStats.reports)}</b></div><div><span>PENDING REVIEW</span><b>${Number(state.adminStats.review_queue)}</b></div><div><span>UNDER INVESTIGATION</span><b>${Number(state.adminStats.under_investigation)}</b></div><div><span>VERIFIED FINDINGS</span><b>${Number(state.adminStats.verified)}</b></div><div><span>DISPUTED REPORTS</span><b>${Number(state.adminStats.disputed)}</b></div><div><span>OPEN ACCURACY REQUESTS</span><b>${Number(state.adminStats.pending_flags)}</b></div><div class="ai-evaluation-stat"><span>CURATED EVALUATION CASES</span><b>${Number(state.aiEvaluation?.eligible_cases || 0)}</b><small>${evaluation?.accuracy == null ? 'Metrics need eligible human labels' : `Accuracy ${Math.round(evaluation.accuracy * 100)}% · Precision ${evaluation.precision == null ? '—' : Math.round(evaluation.precision * 100) + '%'}`}</small></div><button class="admin-export-button" id="admin-export-current" type="button" ${reports.length ? '' : 'disabled'}>Export visible page as CSV (${reports.length})</button>`;
   } else if (adminPanel) adminPanel.remove();
   if (!reports.length) {
     const hasFilters = state.search || state.filter !== 'all' || state.category !== 'all';
@@ -191,6 +212,43 @@ async function loadCommunity() {
   } catch (error) {
     $('#reports-grid').innerHTML = `<div class="empty-card"><strong>Reports could not be loaded.</strong><p>${escapeHtml(error.message)}</p><button class="button button-outline" id="retry-community">Try again</button></div>`;
   }
+}
+
+function exportAdminReports() {
+  if (state.user?.role !== 'admin') return;
+  const reports = state.communityReports || [];
+  if (!reports.length) { toast('There are no reports on this page to export.'); return; }
+  const csvCell = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+  const rows = [
+    ['Reference', 'Website', 'Business', 'Category', 'Status', 'Submitted', 'Summary', 'Related reports', 'Evidence submitted', 'Evidence reviewed'],
+    ...reports.map((report) => [report.reference_code, report.url, report.business, report.category, report.status, report.created_at, report.description, report.related_count, report.evidence_submitted ? 'Yes' : 'No', report.evidence_reviewed ? 'Yes' : 'No'])
+  ];
+  const csv = `\uFEFF${rows.map((row) => row.map(csvCell).join(',')).join('\r\n')}`;
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `trustshield-reports-page-${state.communityPage}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+  toast(`Exported ${reports.length} visible report${reports.length === 1 ? '' : 's'}.`);
+}
+
+async function loadAiStatus() {
+  const target = $('#ai-status');
+  try {
+    state.aiStatus = await api('/api/ai/status');
+    target.textContent = state.aiStatus.configured ? `Optional AI provider configured: ${state.aiStatus.provider} · ${state.aiStatus.model}` : 'AI provider not configured · rule-based checks remain available';
+    target.title = state.aiStatus.evidence_privacy || '';
+  } catch {
+    state.aiStatus = { configured: false, availability: 'status unavailable' };
+    target.textContent = 'AI availability could not be checked · rule-based checks remain available';
+  }
+}
+
+async function loadAiEvaluation() {
+  if (state.user?.role !== 'admin') { state.aiEvaluation = null; return; }
+  try { state.aiEvaluation = await api('/api/admin/ai/evaluation'); }
+  catch { state.aiEvaluation = null; }
 }
 
 function renderActivity() {
@@ -232,11 +290,38 @@ function reportTimeline(report) {
   return events.map((event) => `<div class="timeline-event"><i></i><div><b>${escapeHtml(displayReportStatus(event.event_label || event.new_status))}</b><small>${dateLabel(event.created_at)}${event.note ? ` · ${escapeHtml(event.note)}` : ''}</small></div></div>`).join('');
 }
 
+function renderReportAi(report, isOwner, isAdmin) {
+  const bundle = report.ai_analysis || {};
+  const complaint = bundle.complaint || {};
+  const complaintAi = complaint.ai || {};
+  const local = complaint.local || {};
+  const evidence = bundle.evidence || {};
+  const evidenceAi = evidence.ai || {};
+  const extracted = evidenceAi.status === 'available' ? evidenceAi.extracted_information : evidence.extracted_information;
+  const indicators = (complaintAi.risk_indicators || []).map((item, index) => {
+    const feedback = isAdmin && complaintAi.analysis_id ? `<div class="ai-moderator-feedback"><label class="sr-only" for="ai-note-${index}">Moderator feedback note</label><input class="form-input" id="ai-note-${index}" data-ai-note placeholder="Optional moderator note" maxlength="1000"/><button type="button" data-ai-feedback="accepted" data-ai-run="${Number(complaintAi.analysis_id)}" data-ai-key="risk_indicators:${index}">Accept as useful</button><button type="button" data-ai-feedback="rejected" data-ai-run="${Number(complaintAi.analysis_id)}" data-ai-key="risk_indicators:${index}">Reject as incorrect</button></div>` : '';
+    return `<details class="ai-finding"><summary><span class="ai-severity severity-${escapeHtml(item.severity)}">${escapeHtml(item.severity)}</span><b>${escapeHtml(item.name)}</b></summary><p>${escapeHtml(item.description)}</p>${item.evidence ? `<blockquote>${escapeHtml(item.evidence)}</blockquote>` : ''}<p><b>Suggested next step:</b> ${escapeHtml(item.recommended_action || '')}</p>${modelConfidence(item.confidence)}${feedback}</details>`;
+  }).join('');
+  const showRetry = isOwner && state.aiStatus?.configured;
+  const showAdminRetry = isAdmin && report.ai_consent && state.aiStatus?.configured;
+  const retry = showRetry ? `<div class="ai-consent-retry"><label class="check-label"><input type="checkbox" id="ai-retry-consent" /><span>Send redacted report text and extracted evidence text to the configured provider for this analysis. The original files are not sent.</span></label><button class="button button-outline" type="button" id="retry-ai-analysis" disabled>Run AI-assisted analysis</button></div>` : showAdminRetry ? `<button class="button button-outline" type="button" id="retry-ai-analysis">Retry AI-assisted analysis</button>` : '';
+  const entityList = extracted ? Object.entries(extracted).flatMap(([key, values]) => Array.isArray(values) && values.length ? [`<span><b>${escapeHtml(key.replaceAll('_', ' '))}:</b> ${values.map(escapeHtml).join(', ')}</span>`] : []).join('') : '';
+  const missing = (complaintAi.status === 'available' ? complaintAi.missing_information : local.missing_information) || [];
+  const questions = complaintAi.status === 'available' ? (complaintAi.suggested_questions || []) : [];
+  const conflicts = [...(complaintAi.potential_inconsistencies || []), ...(evidence.potential_inconsistencies || [])];
+  const extractionRows = (evidence.files || []).map((item) => `<span>${escapeHtml(item.name)} · ${escapeHtml(item.extraction_status)} · ${Number(item.characters_extracted)} characters</span>`).join('');
+  const aiSummary = complaintAi.status === 'available' ? complaintAi.summary : (local.summary || 'AI analysis has not been run for this report.');
+  const status = complaintAi.status === 'available' || evidenceAi.status === 'available' ? 'AI-assisted observations' : 'Rule-based assistance only';
+  const reportLabel = isAdmin ? `<form class="ai-outcome-form" id="ai-outcome-form" data-report-id="${Number(report.id)}"><label class="field-label">Curate a human-reviewed outcome<select class="form-input" name="label"><option>confirmed malicious activity</option><option>supported complaint</option><option>insufficient evidence</option><option>inaccurate complaint</option><option>legitimate business</option><option>disputed</option><option>unresolved</option></select></label><label class="field-label">Dataset partition<select class="form-input" name="partition"><option value="unassigned">Keep outside evaluation/training</option><option value="training">Training candidate</option><option value="evaluation">Evaluation set</option></select></label><button class="button button-outline" type="submit">Save human label</button><small>Only reviewed cases should be labeled. Disputed and unresolved cases stay unassigned.</small></form>` : '';
+  return `<section class="detail-section ai-report-panel"><div class="ai-panel-heading"><span class="ai-label">AI-ASSISTED · HUMAN REVIEW REQUIRED</span><h3>Investigation assistance</h3><span class="ai-state ${complaintAi.status === 'available' ? '' : 'unavailable'}">${status}</span></div><p class="ai-report-summary">${escapeHtml(aiSummary)}</p><p class="ai-muted">${escapeHtml(complaintAi.message || evidenceAi.message || 'Local extraction and deterministic completeness checks remain available. AI output cannot change the report status.')}</p>${complaintAi.status === 'available' ? `<div class="ai-run-meta">${escapeHtml(complaintAi.provider)} · ${escapeHtml(complaintAi.model)} · ${escapeHtml(complaintAi.model_version || 'version unknown')} · prompt ${escapeHtml(complaintAi.prompt_version || 'unknown')} · triage: ${escapeHtml(complaintAi.triage)}</div><div class="ai-observation-list">${indicators || '<p>No specific risk indicator was returned. That is not a safety determination.</p>'}</div>` : ''}${extractionRows ? `<details class="ai-details"><summary>Evidence extraction status</summary><div class="ai-extracted-list">${extractionRows}${entityList}</div><p class="ai-muted">${escapeHtml(evidence.limitations || 'OCR can be incomplete and does not prove authenticity.')}</p></details>` : ''}${conflicts.length ? `<div class="ai-warning-list"><b>Potential inconsistencies to review</b>${conflicts.map((item) => `<p>${escapeHtml(item)}</p>`).join('')}</div>` : ''}${missing.length ? `<details class="ai-details"><summary>Missing information to consider (${missing.length})</summary><ul>${missing.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul></details>` : ''}${questions.length ? `<details class="ai-details"><summary>Suggested moderator questions (${questions.length})</summary><ul>${questions.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul></details>` : ''}<details class="ai-details"><summary>Related pattern leads (${(bundle.related_patterns || []).length})</summary>${(bundle.related_patterns || []).length ? `<div>${(bundle.related_patterns || []).map((item) => `<p>Report #${Number(item.id)} · ${Math.round(Number(item.similarity) * 100)}% text similarity · ${escapeHtml((item.reasons || []).join(', '))}</p>`).join('')}</div>` : '<p>No likely related patterns were found by these rules. Similar reports are leads, not independent evidence.</p>'}</details>${retry}${reportLabel}<p class="ai-limits">Confidence bands are model-reported and uncalibrated. Evidence analysis does not determine authenticity or whether a complaint is true. Official status remains under human moderator control.</p></section>`;
+}
+
 function showReport(report) {
   const dialog = document.createElement('dialog');
   dialog.className = 'modal report-detail-modal';
   const isOwner = Boolean(report.can_manage);
   const isAdmin = Boolean(report.is_admin);
+  const aiReportPanel = isOwner || isAdmin ? renderReportAi(report, isOwner, isAdmin) : '';
   const evidenceChecks = (report.evidence_analysis?.checks || []).map((check) => `<div class="evidence-check"><span class="evidence-check-status ${String(check.status).toLowerCase().replaceAll(' ', '-')}">${escapeHtml(check.status)}</span><div><b>${escapeHtml(check.label)}</b><p>${escapeHtml(check.explanation)}</p>${check.evidence ? `<small>${escapeHtml(check.evidence)}</small>` : ''}</div></div>`).join('');
   const guidance = report.guidance || { steps: [], resources: [], disclaimer: '' };
   const guidanceHtml = isOwner ? `<section class="detail-section guidance-section"><div class="detail-section-heading"><div><span class="eyebrow">PERSONALIZED NEXT STEPS</span><h3>What you can do now</h3></div><span class="small-muted">Check off steps as you go</span></div><div class="guidance-steps">${guidance.steps.map((step) => `<label class="guidance-step"><input type="checkbox" data-guidance-action="${escapeHtml(step.id)}" ${report.completed_guidance_actions?.includes(step.id) ? 'checked' : ''}/><span>${escapeHtml(step.text)}</span></label>`).join('')}</div><div class="official-resources">${guidance.resources.map((resource) => `<a href="${escapeHtml(resource.url)}" target="_blank" rel="noopener noreferrer"><b>${escapeHtml(resource.title)} ↗</b><small>${escapeHtml(resource.note)}</small></a>`).join('')}</div><p class="privacy-hint">${escapeHtml(guidance.disclaimer)}</p></section>` : '';
@@ -247,7 +332,7 @@ function showReport(report) {
   const available = report.available_transitions || [];
   const reviewForm = isAdmin ? `<section class="detail-section admin-review-section"><div class="detail-section-heading"><div><span class="eyebrow">ADMIN REVIEW</span><h3>Record a review decision</h3></div></div><form id="moderation-form" data-report-id="${Number(report.id)}"><label class="field-label">New review status<select class="form-input" name="status" required>${available.map((status) => `<option>${escapeHtml(status)}</option>`).join('')}</select></label><label class="field-label">Internal reason · required<textarea class="form-input" name="note" minlength="10" maxlength="1000" placeholder="Record what was reviewed and why you chose this status." required></textarea></label><div class="public-message-wrap" hidden><label class="field-label">Message for the reporter · required<textarea class="form-input" name="public_message" minlength="8" maxlength="1000" placeholder="Tell them exactly what additional information would help."></textarea></label></div><button class="button button-primary" type="submit">Save status and notify reporter</button></form></section>` : '';
   const formsHtml = !isAdmin ? `<section class="detail-section"><h3>Request an accuracy review</h3><form class="report-feedback-form" data-kind="flags" data-report-id="${Number(report.id)}"><label class="field-label">What information may be inaccurate?<textarea class="form-input" name="reason" minlength="12" maxlength="2000" placeholder="Please explain what should be reviewed." required></textarea></label><input class="form-input" name="contact" maxlength="160" placeholder="Contact email (optional)"/><button class="button button-outline" type="submit">Send review request</button></form><form class="report-feedback-form" data-kind="disputes" data-report-id="${Number(report.id)}"><label class="field-label">Challenge this report<textarea class="form-input" name="reason" minlength="12" maxlength="2000" placeholder="Explain why you believe this report should be disputed." required></textarea></label><input class="form-input" name="contact" maxlength="160" placeholder="Business contact (optional)"/><button class="button button-outline" type="submit">Submit dispute</button></form></section>` : '';
-  dialog.innerHTML = `<div class="report-detail"><div class="modal-heading"><div><div class="eyebrow"><span class="eyebrow-icon">⌘</span> REPORT ${escapeHtml(report.reference_code || '')}</div><h2>${escapeHtml(report.business || report.domain || domainFrom(report.url))}</h2><a class="report-url" href="${escapeHtml(report.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(report.url)} ↗</a></div><button class="modal-close" aria-label="Close report">×</button></div><div class="detail-status-row"><span class="status-badge status-${(report.status || 'Submitted').toLowerCase().replaceAll(' ', '-')}">${escapeHtml(displayReportStatus(report.status || 'Submitted'))}</span><span>${escapeHtml(report.category)}</span><span>${dateLabel(report.created_at)}</span></div>${report.public_update ? `<div class="public-update"><b>Latest message from the review team</b><p>${escapeHtml(report.public_update)}</p></div>` : ''}<div class="detail-two-col"><section class="detail-section"><h3>What was reported</h3><p class="detail-description">${escapeHtml(report.details || report.description || '')}</p><dl><dt>Website</dt><dd>${escapeHtml(report.url)}</dd><dt>Business</dt><dd>${escapeHtml(report.business || 'Not provided')}</dd><dt>Incident date</dt><dd>${escapeHtml(report.incident_date || 'Not provided')}</dd>${isOwner || isAdmin ? `<dt>Amount</dt><dd>${escapeHtml(report.amount || 'Not provided')}</dd><dt>Transaction reference</dt><dd>${escapeHtml(report.reference || 'Not provided')}</dd>` : ''}</dl></section><section class="detail-section"><h3>Status timeline</h3><div class="report-timeline">${reportTimeline(report)}</div></section></div><section class="detail-section"><div class="detail-section-heading"><div><span class="eyebrow">EVIDENCE REVIEW</span><h3>Evidence and consistency</h3></div><span class="evidence-chip ${report.evidence_reviewed ? 'reviewed' : ''}">${report.evidence_reviewed ? 'Supporting findings recorded' : report.evidence_submitted ? 'Submitted · not proof by itself' : 'No file submitted'}</span></div><p class="evidence-caveat">${escapeHtml(report.evidence_summary || 'Evidence authenticity and relevance require human review.')}</p><details class="evidence-details"><summary>Files and structured checks</summary><div class="evidence-files">${filesHtml}</div><div class="evidence-checks">${evidenceChecks || '<p>Basic checks were not available for this report.</p>'}</div></details>${report.evidence_analysis?.possible_duplicates?.length ? `<p class="review-caution">Possible similar reports: ${report.evidence_analysis.possible_duplicates.map((item) => `#${Number(item.id)} (${Math.round(Number(item.similarity) * 100)}% text similarity)`).join(', ')}. Similarity is a moderator lead, not proof or independent confirmation.</p>` : ''}</section>${guidanceHtml}${isOwner && report.status === 'More Information Required' ? `<section class="detail-section"><h3>Send the review team an update</h3><form id="followup-form" data-report-id="${Number(report.id)}"><textarea class="form-input" name="details" minlength="8" maxlength="4000" required placeholder="Add the requested information or explain what you found."></textarea><label class="field-label">Attach another file (optional)<input class="form-input" name="file" type="file" accept="image/png,image/jpeg,image/webp,application/pdf,.txt" /></label><span class="field-hint" data-followup-filename>No file selected</span><p class="field-hint">Accepted formats: PNG, JPG, WEBP, PDF, TXT · Maximum 2 MB. Redact passwords, OTPs, full card numbers, and unnecessary personal details.</p><div class="form-error" role="alert"></div><button class="button button-primary" type="submit">Send additional information</button></form></section>` : ''}${followups ? `<section class="detail-section"><h3>Additional information history</h3>${followups}</section>` : ''}<section class="detail-section"><h3>Related reports <span class="small-muted">${(report.related_reports || []).length}</span></h3><div class="related-reports">${relatedHtml}</div><p class="privacy-hint">Related reports may overlap and are not treated as independent confirmation.</p></section>${isAdmin ? `<section class="detail-section"><h3>Accuracy requests and disputes</h3>${adminDisputes || '<p class="small-muted">No pending or previous requests.</p>'}</section>` : ''}${reviewForm}${formsHtml}<p class="privacy-hint">TrustShield review status reflects the information recorded in this platform. It is not a legal finding and does not guarantee recovery of money.</p></div>`;
+  dialog.innerHTML = `<div class="report-detail"><div class="modal-heading"><div><div class="eyebrow"><span class="eyebrow-icon">⌘</span> REPORT ${escapeHtml(report.reference_code || '')}</div><h2>${escapeHtml(report.business || report.domain || domainFrom(report.url))}</h2><a class="report-url" href="${escapeHtml(report.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(report.url)} ↗</a></div><button class="modal-close" aria-label="Close report">×</button></div><div class="detail-status-row"><span class="status-badge status-${(report.status || 'Submitted').toLowerCase().replaceAll(' ', '-')}">${escapeHtml(displayReportStatus(report.status || 'Submitted'))}</span><span>${escapeHtml(report.category)}</span><span>${dateLabel(report.created_at)}</span></div>${report.public_update ? `<div class="public-update"><b>Latest message from the review team</b><p>${escapeHtml(report.public_update)}</p></div>` : ''}<div class="detail-two-col"><section class="detail-section"><h3>What was reported</h3><p class="detail-description">${escapeHtml(report.details || report.description || '')}</p><dl><dt>Website</dt><dd>${escapeHtml(report.url)}</dd><dt>Business</dt><dd>${escapeHtml(report.business || 'Not provided')}</dd><dt>Incident date</dt><dd>${escapeHtml(report.incident_date || 'Not provided')}</dd>${isOwner || isAdmin ? `<dt>Amount</dt><dd>${escapeHtml(report.amount || 'Not provided')}</dd><dt>Transaction reference</dt><dd>${escapeHtml(report.reference || 'Not provided')}</dd>` : ''}</dl></section><section class="detail-section"><h3>Status timeline</h3><div class="report-timeline">${reportTimeline(report)}</div></section></div><section class="detail-section"><div class="detail-section-heading"><div><span class="eyebrow">EVIDENCE REVIEW</span><h3>Evidence and consistency</h3></div><span class="evidence-chip ${report.evidence_reviewed ? 'reviewed' : ''}">${report.evidence_reviewed ? 'Supporting findings recorded' : report.evidence_submitted ? 'Submitted · not proof by itself' : 'No file submitted'}</span></div><p class="evidence-caveat">${escapeHtml(report.evidence_summary || 'Evidence authenticity and relevance require human review.')}</p><details class="evidence-details"><summary>Files and structured checks</summary><div class="evidence-files">${filesHtml}</div><div class="evidence-checks">${evidenceChecks || '<p>Basic checks were not available for this report.</p>'}</div></details>${report.evidence_analysis?.possible_duplicates?.length ? `<p class="review-caution">Possible similar reports: ${report.evidence_analysis.possible_duplicates.map((item) => `#${Number(item.id)} (${Math.round(Number(item.similarity) * 100)}% text similarity)`).join(', ')}. Similarity is a moderator lead, not proof or independent confirmation.</p>` : ''}</section>${aiReportPanel}${guidanceHtml}${isOwner && report.status === 'More Information Required' ? `<section class="detail-section"><h3>Send the review team an update</h3><form id="followup-form" data-report-id="${Number(report.id)}"><textarea class="form-input" name="details" minlength="8" maxlength="4000" required placeholder="Add the requested information or explain what you found."></textarea><label class="field-label">Attach another file (optional)<input class="form-input" name="file" type="file" accept="image/png,image/jpeg,image/webp,application/pdf,.txt" /></label><span class="field-hint" data-followup-filename>No file selected</span><p class="field-hint">Accepted formats: PNG, JPG, WEBP, PDF, TXT · Maximum 2 MB. Redact passwords, OTPs, full card numbers, and unnecessary personal details.</p><div class="form-error" role="alert"></div><button class="button button-primary" type="submit">Send additional information</button></form></section>` : ''}${followups ? `<section class="detail-section"><h3>Additional information history</h3>${followups}</section>` : ''}<section class="detail-section"><h3>Related reports <span class="small-muted">${(report.related_reports || []).length}</span></h3><div class="related-reports">${relatedHtml}</div><p class="privacy-hint">Related reports may overlap and are not treated as independent confirmation.</p></section>${isAdmin ? `<section class="detail-section"><h3>Accuracy requests and disputes</h3>${adminDisputes || '<p class="small-muted">No pending or previous requests.</p>'}</section>` : ''}${reviewForm}${formsHtml}<p class="privacy-hint">TrustShield review status reflects the information recorded in this platform. It is not a legal finding and does not guarantee recovery of money.</p></div>`;
   document.body.append(dialog);
   dialog.querySelector('.modal-close').addEventListener('click', () => dialog.close());
   dialog.addEventListener('close', () => dialog.remove());
@@ -285,6 +370,37 @@ function showReport(report) {
     try { await api(`/api/reports/${Number(form.dataset.reportId)}/${form.dataset.kind}`, { method: 'POST', body: JSON.stringify(body) }); toast('Your request has been sent to the review team.'); dialog.close(); }
     catch (error) { toast(error.message); }
   }));
+  const retryAiButton = dialog.querySelector('#retry-ai-analysis');
+  const retryAiConsent = dialog.querySelector('#ai-retry-consent');
+  retryAiConsent?.addEventListener('change', () => { retryAiButton.disabled = !retryAiConsent.checked; });
+  retryAiButton?.addEventListener('click', async () => {
+    if (!isAdmin && !retryAiConsent?.checked) return;
+    retryAiButton.disabled = true;
+    retryAiButton.textContent = 'Analyzing…';
+    try {
+      await api(`/api/reports/${Number(report.id)}/ai-analysis`, { method: 'POST', body: JSON.stringify({ consent: Boolean(retryAiConsent?.checked) }) });
+      const refreshed = await api(`/api/reports/${Number(report.id)}`);
+      dialog.close(); showReport(refreshed);
+      toast('AI-assisted observations were refreshed; the report status did not change.');
+    } catch (error) { toast(error.message); retryAiButton.disabled = false; retryAiButton.textContent = 'Retry AI-assisted analysis'; }
+  });
+  dialog.querySelectorAll('[data-ai-feedback]').forEach((button) => button.addEventListener('click', async () => {
+    button.disabled = true;
+    try {
+      await api('/api/admin/ai/feedback', { method: 'POST', body: JSON.stringify({ run_id: Number(button.dataset.aiRun), finding_key: button.dataset.aiKey, decision: button.dataset.aiFeedback, note: button.parentElement.querySelector('[data-ai-note]')?.value || '' }) });
+      button.textContent = button.dataset.aiFeedback === 'accepted' ? 'Accepted' : 'Rejected';
+      toast('Moderator feedback saved.');
+    } catch (error) { button.disabled = false; toast(error.message); }
+  }));
+  const aiOutcomeForm = dialog.querySelector('#ai-outcome-form');
+  aiOutcomeForm?.addEventListener('submit', async (event) => {
+    event.preventDefault(); if (!aiOutcomeForm.reportValidity()) return;
+    try {
+      await api(`/api/admin/reports/${Number(report.id)}/ai-outcome`, { method: 'POST', body: JSON.stringify(Object.fromEntries(new FormData(aiOutcomeForm).entries())) });
+      await loadAiEvaluation(); renderReports();
+      toast('Human-reviewed outcome label saved.');
+    } catch (error) { toast(error.message); }
+  });
   dialog.querySelector('#followup-form')?.querySelector('[name="file"]')?.addEventListener('change', (event) => {
     $('[data-followup-filename]', event.currentTarget.form).textContent = event.currentTarget.files[0]?.name || 'No file selected';
   });
@@ -390,6 +506,7 @@ async function submitReport(event) {
       incident_date: $('#report-date').value, amount: $('#report-amount').value.trim() ? `${$('#report-currency').value} ${$('#report-amount').value.trim()}` : '',
       reference: $('#report-reference').value.trim(), links: $('#report-links').value.trim(),
       evidence_files: await Promise.all(state.pendingEvidence.map(filePayload)), agree: $('#report-agree').checked,
+      ai_consent: $('#report-ai-consent').checked,
     };
     const result = await submitReportPayload(payload);
     const guestStatusSaved = rememberGuestReport(result);
@@ -485,6 +602,7 @@ async function loadHistory() {
     state.ownReports = history.my_reports || [];
     state.adminStats = history.admin_stats || null;
     state.overview = history.overview || {};
+    await loadAiEvaluation();
     renderActivity();
     renderDashboard();
     renderReports();
@@ -493,6 +611,7 @@ async function loadHistory() {
 }
 
 async function boot() {
+  await loadAiStatus();
   try { state.user = await api('/api/auth/me'); } catch { state.user = null; }
   renderAuth();
   await loadHistory();
@@ -542,6 +661,7 @@ $('#report-category-filter').addEventListener('change', (event) => { state.categ
 $('#report-sort').addEventListener('change', (event) => { state.sort = event.target.value; state.communityPage = 1; loadCommunity(); });
 $('#community-prev').addEventListener('click', () => { if (state.communityPage > 1) { state.communityPage -= 1; loadCommunity(); } });
 $('#community-next').addEventListener('click', () => { if (state.communityPage < state.communityPages) { state.communityPage += 1; loadCommunity(); } });
+$('#community').addEventListener('click', (event) => { if (event.target.closest('#admin-export-current')) exportAdminReports(); });
 $('#refresh-notifications').addEventListener('click', loadNotifications);
 $('#notification-list').addEventListener('click', async (event) => {
   const item = event.target.closest('[data-notification-id]'); if (!item) return;
