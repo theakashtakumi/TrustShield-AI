@@ -14,6 +14,7 @@ server.py ──► trust_engine.py
     ├── guidance_service.py (category-specific, country-aware guidance)
     ├── evidence_service.py (deterministic evidence triage and duplicate hints)
     ├── community_service.py (privacy-safe search, counts, and pagination)
+    ├── ai_services/ (optional providers, content/phishing/evidence/complaint analysis, moderation support, evaluation)
     ├── SQLite (scans, accounts, sessions, reports, moderation events)
     └── uploads/ (private report and follow-up evidence)
 ```
@@ -25,6 +26,7 @@ server.py ──► trust_engine.py
 - `trust_engine.py`: deterministic, versioned finding format, configurable weighted scoring, and risk-tier labels, independent of HTTP and storage.
 - `guidance_service.py`: incident-specific action steps and allowed official resources. Resource URLs are configurable but accepted only on the independently verified official host.
 - `evidence_service.py`: file readability, category relevance hints, duplicate hashes, date/domain consistency, completeness, and possible-similarity checks. It deliberately does not authenticate files or decide claims.
+- `ai_services/`: provider-independent structured JSON analysis and deterministic phishing/pattern heuristics. Outputs are private observations, stored with model provenance and input hashes; they do not contribute to scanner scoring or report status.
 - `community_service.py`: indexed domain/status/category query, safe public summaries, aggregate counts, and page-limited results.
 - `web/`: responsive accessible interface. `app.js` owns API calls and renders escape-encoded user content.
 - `trustshield.db`: SQLite file created at first startup. The database access helper commits/rolls back and always closes the connection.
@@ -50,12 +52,14 @@ Guest reports are allowed. Signed-in users can view their own report evidence an
 
 Reports start at `Submitted` and remain private until a moderator moves them into review. Supported states are `Submitted`, `Under Review`, `More Information Required`, `Partially Supported`, `Verified Findings`, `Inconsistencies Found`, `Rejected`, and `Disputed`. `STATUS_TRANSITIONS` in `server.py` defines permitted transitions. Every moderator decision requires an internal reason and creates an append-only `moderation_events` record with moderator ID and time. A separate public update is used for information requests, so internal notes never appear in user or community views. Legacy states are mapped additively during startup migration.
 
-The evidence service stores its versioned checks with each report. It can note unreadable files, category hints, duplicate hashes, incident date conflicts, unrelated links, incomplete narratives, and similar domain/category reports. Similarity is based on a text heuristic and relevant dates; candidates are shown to moderators and never merged automatically. File structure cannot prove authenticity, and a genuine receipt cannot by itself prove intentional fraud. The analyzer boundary is ready for later OCR/document adapters, but none are configured and the app makes no AI claim.
+The evidence service stores its versioned checks with each report. It can note unreadable files, category hints, duplicate hashes, incident date conflicts, unrelated links, incomplete narratives, and similar domain/category reports. Similarity is based on a text heuristic and relevant dates; candidates are shown to moderators and never merged automatically. Optional AI services locally extract PDF/image text when optional dependencies are installed. External complaint/evidence analysis requires explicit consent; the uploaded binary is never sent. Outputs are schema-validated and private to the owner/admin. File structure cannot prove authenticity, and a genuine receipt cannot by itself prove intentional fraud.
 
 User guidance is selected by category and currently targets India. Completed steps are scoped to the report owner (account or guest token). In-app notifications are persisted in SQLite with read state. More-information requests keep the current verification status until an administrator reviews the reporter's follow-up. Accuracy flags and business/affected-party disputes are stored privately for moderator review; they do not automatically change a public report's verification status.
 
 Community search uses indexed status, category, and normalized domain columns and returns at most 20 rows per page. Public cards use a redacted short description and omit private evidence, transaction references, related links, contact details, and internal notes. Per-domain totals may include submitted but unpublished allegations; the interface labels these as unverified and warns that counts are not proof.
 
-## Future service boundaries
+## AI and provenance flow
 
-`trust_engine.py` is the scan scoring boundary; later domain-age and threat-intelligence adapters should return typed findings with source, timestamp, availability, and rule IDs. An optional evidence-extraction interface can be added beside `evidence_service.py`, but outputs must remain review suggestions and cannot silently change report status. Database access can move behind repositories before replacing SQLite with PostgreSQL.
+The website scan passes only bounded text from the existing safe retrieval flow to optional content analysis. Separate phishing heuristics compare URLs with editable brand reference data and inspect password forms/redirects. Neither changes the deterministic score. Report analysis keeps OCR local, then may send common-pattern-redacted text to the configured provider only after consent. Database `ai_runs` rows preserve provider, model, version, prompt, time, usage, consent, domain, and input hash, but not raw request text. Moderator feedback and curated outcome labels are separate tables; evaluation is partitioned and does not train a model.
+
+See [AI architecture](AI_ARCHITECTURE.md) for provider configuration, text/file limits, redaction constraints, validation, evaluation, and deployment requirements. The Vercel project currently serves the static `web/` directory only. A separately hosted persistent Python API is required for scans, accounts, evidence, and AI provider calls. Database access can move behind repositories before replacing SQLite with PostgreSQL.

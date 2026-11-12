@@ -8,7 +8,11 @@ All endpoints are same-origin and JSON unless noted. API errors use `{"error":".
 
 Request: `{"url":"https://shop.example"}`. Scheme is optional; HTTPS is assumed. The result includes `id`, canonical `url`, `domain`, `score`, `label`, `summary`, `findings[]` (also returned as `checks[]`), `calculation`, `scanner_version`, `created_at`, and `status_code`. The score is a bounded presentation aid, not a safety probability. Each finding includes `rule_id`, `name`, `category`, `status`, `explanation`, `source`, `evidence`, `observed_at`, `score_contribution`, and `scanner_version`. Status is `PASS`, `WARNING`, `FAIL`, `NOT DETECTED`, `UNKNOWN`, or `NOT APPLICABLE`. Unknown and unavailable checks contribute no points. The calculation contains the formula and weighted warning points.
 
-The scanner checks public DNS addresses, HTTPS/TLS where available, HTTP behavior, six security headers, cookie attributes, and selected page text and URL patterns. Domain registration, nameserver and threat-feed lookups are explicitly `UNKNOWN` until providers are configured. Scanner requests are size- and time-bounded, resolve and validate destinations, pin the connection to a validated public IP, disable proxies, and validate every redirect.
+The scanner checks public DNS addresses, HTTPS/TLS where available, HTTP behavior, six security headers, cookie attributes, and selected page text and URL patterns. Domain registration, nameserver and threat-feed lookups are explicitly `UNKNOWN` until providers are configured. Scanner requests are size- and time-bounded, resolve and validate destinations, pin the connection to a validated public IP, disable proxies, and validate every redirect. When configured, `ai_analysis` contains a separately labeled analysis of retrieved visible text and `phishing_analysis` contains deterministic URL/brand/login heuristics. These fields never change the deterministic score. AI service errors preserve the non-AI result.
+
+### `GET /api/ai/status`
+
+Returns provider configuration and supported capabilities. `configured: true` means credentials/endpoint settings are present; it is not a live health check. AI is optional and disabled by default.
 
 ### `GET /api/history`
 
@@ -26,7 +30,7 @@ Returns database-backed totals and review-status/category counts for the domain,
 
 ### `POST /api/reports`
 
-Required body fields: `url`, `category`, `details` (12–4,000 characters), and `agree: true`. Optional fields: `business`, `incident_date` (`YYYY-MM-DD`, not future), `amount` (free text, such as `INR 1200`), `reference`, `links` (up to five URLs on separate lines), and `evidence_files` (up to 3 `{name,mime_type,data}` objects, base64 data). Legacy clients may use one `evidence_file`. Each file must be PNG/JPEG/WEBP/PDF/TXT and no larger than 2 MB. Reports begin at `Submitted`; the response contains a stable reference, personalized guidance, and deterministic evidence triage. The form presents fields as a three-step flow and defaults the amount currency to INR.
+Required body fields: `url`, `category`, `details` (12–4,000 characters), and `agree: true`. Optional fields: `business`, `incident_date` (`YYYY-MM-DD`, not future), `amount` (free text, such as `INR 1200`), `reference`, `links` (up to five URLs on separate lines), `ai_consent` (boolean, defaults false), and `evidence_files` (up to 3 `{name,mime_type,data}` objects, base64 data). Legacy clients may use one `evidence_file`. Each file must be PNG/JPEG/WEBP/PDF/TXT and no larger than 2 MB. Reports begin at `Submitted`; the response contains a stable reference, personalized guidance, deterministic evidence triage, and private AI analysis metadata/results when available. `ai_consent: true` permits the configured provider to process report text and locally extracted evidence text after common-pattern redaction; the raw file is never sent. Other sensitive details can remain in text, so the user must review before opting in. The form presents fields as a three-step flow and defaults the amount currency to INR.
 
 Duplicate URL/category/details combinations are rejected. This is basic duplicate suppression, not an anti-abuse system. Guests can submit; signed-in reports attach to the account.
 Guest submissions receive an unguessable access token once in the response. The browser stores it locally and sends it in `X-TrustShield-Guest-Tokens` to show report status and access private submission details. Clearing browser storage loses guest access; sign-in provides account-based tracking instead.
@@ -34,6 +38,12 @@ Guest submissions receive an unguessable access token once in the response. The 
 ### `GET /api/reports/{id}`
 
 Returns the report reference, status timeline, safe public description (or full description to its owner/admin), category guidance, related reports, and basic evidence summary. Only the owner/admin receives transaction references, related URLs, original evidence names, private follow-ups, structured evidence analysis, and internal moderation reasons. Moderation history notes are only returned to admins. Public users cannot retrieve Submitted or Rejected reports.
+
+Owner/admin details may also include `ai_analysis`: local completeness and extraction results, AI summaries/observations, possible inconsistencies, suggested questions, and similar-report leads. It is private and explicitly not independent verification. Administrators also receive recorded `ai_feedback` decisions for the report. Public report details omit AI analysis, consent, and moderator feedback.
+
+### `POST /api/reports/{id}/ai-analysis`
+
+Owner may request a new analysis with `{ "consent": true }`; explicit consent is required on every owner-triggered retry. An administrator may retry only if the reporter previously consented. Returns the updated private analysis and `report_status_unchanged: true`. This endpoint cannot alter report status. Analysis may be unavailable when the provider or optional extraction tools are not configured.
 
 ### `POST /api/reports/{id}/actions`
 
@@ -63,12 +73,15 @@ Lists persisted in-app notifications for a signed-in owner or guest-token owner 
 - `GET /api/auth/me`: returns the current user, or HTTP 401 when signed out.
 - `PATCH /api/admin/reports/{id}/status`: admin only; `{status,note,public_message?}`. Status must follow the allowed lifecycle transition: Submitted, Under Review, More Information Required, Partially Supported, Verified Findings, Inconsistencies Found, Rejected, or Disputed. An internal reason is required; `More Information Required` also requires a separate message visible to the owner. Each change is logged with moderator ID, prior/new status, reason, and time; the owner receives an in-app notification.
 - `PATCH /api/admin/reports/{id}/flags/{flag_id}`: admin only; `{status,reason}` resolves an accuracy/dispute request as `Actioned`, `No change`, or `Needs follow-up`. The decision is recorded in the moderation audit trail.
+- `POST /api/admin/ai/feedback`: admin only; `{run_id,finding_key,decision,note?}` accepts/rejects an existing complaint finding (for example `risk_indicators:0`). Decisions are audit data and do not update the complaint's official status.
+- `POST /api/admin/reports/{id}/ai-outcome`: admin only; `{label,partition,note}` records a human-reviewed outcome. Partitions are `training`, `evaluation`, and `unassigned`. A required review note explains the label; insufficient-evidence, disputed, and unresolved labels must be unassigned. A report cannot be placed in both training and evaluation partitions.
+- `GET /api/admin/ai/evaluation`: admin only; returns precision, recall, false-positive/negative rates, accuracy, category slices, eligible and excluded counts for the latest evaluation label per report. Only confirmed-malicious and legitimate-business labels qualify for binary metrics; no model training occurs.
 - `GET /api/health`: `{ok:true}`.
 
 The app enforces in-memory per-IP rate limits on scans, reports, registration, and login. Limits reset when the process restarts and are not shared across multiple server workers.
 
 ## Evidence review methodology and limits
 
-Evidence triage checks basic readability, filename/category hints, matching SHA-256 hashes, incident/submission dates, whether submitted URLs share the reported domain or a related subdomain, and whether the description gives enough context. It can suggest similar reports based on domain, category, description similarity, and dates within 30 days. These are moderator leads only. A file check does not establish authenticity, a receipt does not prove seller intent, and no OCR/AI service is configured. `guidance_service.py` contains category/country adapters; India resource URLs may be overridden only while retaining the verified official host. Guidance is general information, not legal or financial advice.
+Evidence triage checks basic readability, filename/category hints, matching SHA-256 hashes, incident/submission dates, whether submitted URLs share the reported domain or a related subdomain, and whether the description gives enough context. It can suggest similar reports based on domain, category, description similarity, and dates within 30 days. These are moderator leads only. Optional local extraction supports TXT, optional PyMuPDF PDFs, and optional Pillow/pytesseract/Tesseract images. Extraction may be unavailable or wrong and does not authenticate the file. The configured AI service receives only consented redacted text, not original binaries. A receipt does not prove seller intent. See `AI_ARCHITECTURE.md` for limits and privacy behavior. `guidance_service.py` contains category/country adapters; India resource URLs may be overridden only while retaining the verified official host. Guidance is general information, not legal or financial advice.
 
 Public views omit contact details, amount, transaction reference, related URLs, private attachments, follow-up details, and internal moderation notes. Public summaries redact common email, phone/long-number, and credential patterns. This heuristic may miss sensitive information, so reports must be moderated before publication and public output should never be used as secure evidence storage.

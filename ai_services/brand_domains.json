@@ -1,0 +1,10 @@
+[
+  {"brand": "Amazon", "domains": ["amazon.com", "amazon.in"]},
+  {"brand": "Apple", "domains": ["apple.com"]},
+  {"brand": "Google", "domains": ["google.com", "google.in"]},
+  {"brand": "HDFC Bank", "domains": ["hdfcbank.com"]},
+  {"brand": "ICICI Bank", "domains": ["icicibank.com"]},
+  {"brand": "Microsoft", "domains": ["microsoft.com"]},
+  {"brand": "PayPal", "domains": ["paypal.com"]},
+  {"brand": "State Bank of India", "domains": ["sbi.co.in"]}
+]

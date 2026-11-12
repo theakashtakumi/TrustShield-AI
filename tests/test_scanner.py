@@ -60,6 +60,34 @@ class ScannerTests(unittest.TestCase):
             finally:
                 server.DB_PATH, server.UPLOAD_DIR = previous_db, previous_upload
 
+    def test_optional_ai_and_phishing_findings_do_not_change_deterministic_score(self):
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+            previous_db, previous_upload = server.DB_PATH, server.UPLOAD_DIR
+            server.DB_PATH = Path(directory) / "test.sqlite"
+            server.UPLOAD_DIR = Path(directory) / "uploads"
+            try:
+                server.init_db()
+                opener = type("FakeOpener", (), {"open": lambda *_args, **_kwargs: FakeResponse(b"<html><title>Shop</title><p>Welcome</p></html>")})()
+                with patch.object(server, "safe_public_host"), patch.object(server.urllib.request, "build_opener", return_value=opener):
+                    baseline = server.scan_site("shop.example")
+                    ai_result = {"status": "available", "analysis_type": "website_content", "findings": [{"name": "Promo", "confidence": "low"}]}
+                    phishing_result = {"assessment": "Heuristics only", "threat_intelligence": {"status": "not_configured", "message": "No feed configured."},
+                                       "findings": [{"id": "phishing.test", "name": "Test signal", "severity": "moderate", "evidence": "shop.example", "explanation": "Lead only.", "recommended_action": "Review.", "source": "Automated heuristic"}]}
+                    with patch.object(server, "analyze_website_content", return_value=ai_result), patch.object(server, "analyze_phishing", return_value=phishing_result):
+                        augmented = server.scan_site("shop.example")
+                    with patch.object(server, "analyze_website_content", return_value={"status": "unavailable", "findings": []}):
+                        unavailable = server.scan_site("shop.example")
+                self.assertEqual(augmented["score"], baseline["score"])
+                self.assertEqual(unavailable["score"], baseline["score"])
+                self.assertEqual(augmented["ai_analysis"]["status"], "available")
+                self.assertTrue(any(item["rule_id"] == "phishing.test" and item["score_contribution"] == 0 for item in augmented["findings"]))
+                with server.db() as conn:
+                    saved = conn.execute("SELECT ai_analysis,phishing_analysis FROM scans WHERE id=?", (augmented["id"],)).fetchone()
+                self.assertIn("Promo", saved["ai_analysis"])
+                self.assertIn("Test signal", saved["phishing_analysis"])
+            finally:
+                server.DB_PATH, server.UPLOAD_DIR = previous_db, previous_upload
+
 
 if __name__ == "__main__":
     unittest.main()

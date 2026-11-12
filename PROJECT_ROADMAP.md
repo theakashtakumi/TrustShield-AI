@@ -22,5 +22,13 @@
 
 ## Future analysis integrations
 
-- Add optional OCR/document extraction adapters behind the evidence service. Any automated output must be sourced, reviewable, and explicitly unverified; it must never replace evidence review or automatically alter report status.
 - Add domain registration and reputable threat intelligence providers behind explicit availability/source adapters; do not simulate results where credentials or coverage are absent.
+- Evaluate privacy-preserving multilingual OCR, calibrated confidence, and better similarity methods against curated, independently reviewed datasets before production use.
+- Add deletion/retention controls for OCR output and consent records, plus provider-specific data-processing controls for deployments that enable hosted models.
+- Keep training and evaluation datasets partitioned by report and governed by human label review; any future training job needs a separately documented approval and reproducibility process.
+
+## AI MVP follow-up
+
+- Deploy the Python API, database, and private file storage as a persistent service alongside the static Vercel frontend; configure provider credentials only in the backend environment.
+- Add egress policies and deployment health/usage monitoring for configured hosted or local model endpoints.
+- Expand API integration coverage for provider failures and run an end-to-end browser pass on the deployed frontend/backend pairing.

@@ -15,12 +15,16 @@ Last updated: 2026-11-12
 - User dashboards with actual scan/report counts, pending guidance, in-app notifications, owner follow-ups, accuracy flags, and dispute submissions; admin dashboards with real queue stats and flag/dispute decisions.
 - Additive SQLite migrations preserve existing reports and migrate legacy verification labels to the more specific lifecycle statuses.
 - Salted password hashing, cookie sessions, private per-account scans/reports, token-protected admin bootstrap, admin stats, status moderation, verification history, and protected evidence retrieval.
+- Optional modular AI layer: structured Gemini/Ollama adapters, bounded retrieved-page content analysis, separate phishing/brand heuristics, local TXT/PDF/image text extraction, opt-in report analysis, similar-report leads, private moderator summaries, finding feedback, human outcome curation, and evaluation metrics.
+- AI results are separated from scanner scoring and verified report status. External report analysis requires explicit consent; provider requests contain redacted text rather than original evidence files; provider/model/prompt/version/usage/hash provenance is retained without raw request text.
 - SQLite schema, API/setup/architecture/roadmap documentation, and deterministic scanner/scoring tests.
 
 ## Partial / not connected
 
 - Domain age, business registry, real threat feeds, and malicious-domain database checks require external providers; none are simulated.
-- Evidence checks are deterministic heuristics and cannot determine authenticity or prove a complaint. No OCR or AI review is configured. Similar reports are leads only and are never merged or counted as independent confirmation.
+- OCR requires optional PyMuPDF or Pillow/pytesseract plus a Tesseract executable. Extraction and AI interpretation can be incomplete or wrong, cannot determine authenticity or prove a complaint, and remain moderator leads. Similar reports are never merged or counted as independent confirmation.
+- Hosted AI providers are optional and require server-side configuration; no provider is required for the existing product workflows. Common-pattern redaction cannot guarantee that all personal information is removed, and consented report text may still contain sensitive details.
+- Vercel publishes the static frontend only. The Python API, AI calls, database, and private evidence storage need a separately deployed backend and persistent storage.
 - Public reporting exposes aggregate counts for submitted claims while keeping report details and evidence private until review. Disputed reports remain visible with their status and full history.
 - Rate limits are in-memory, and the platform still needs durable abuse prevention, retention controls, an operational moderator policy, and production security hardening.
 - Admin user management is limited to user counts and registration role assignment.
@@ -28,7 +32,7 @@ Last updated: 2026-11-12
 
 ## Verification performed
 
-- `python -m unittest discover -s tests -v` — passed (21 tests), covering scanner/header/scoring rules, guidance resources, evidence triage, domain relationships, report access, upload validation, review transitions, follow-ups, notifications, community search, and disputes.
-- `python -m py_compile server.py trust_engine.py security_headers.py guidance_service.py evidence_service.py community_service.py` — passed.
-- `node --check web/app.js` — passed.
+- `python -m unittest discover -s tests -v` — passed (41 tests; 1 skipped because optional PyMuPDF is not installed). Coverage includes AI providers/schemas, timeout/auth/malformed responses, consent and privacy, OCR limits, report moderation/evaluation, scanner score isolation, uploads, and existing workflows.
+- `python -m compileall -q server.py ai_services tests` — passed.
+- `node --check web/app.js` and `git diff --check` — passed.
 - A browser-based end-to-end run was not performed in this environment.

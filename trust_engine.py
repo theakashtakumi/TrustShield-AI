@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-SCANNER_VERSION = "1.1.0"
+SCANNER_VERSION = "1.2.0"
 
 # Contributions are deliberately small for missing browser headers and wording
 # heuristics. Only confirmed external threat intelligence will receive a strong
