@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f7f9fd" />
+    <meta name="description" content="Understand the evidence behind a website’s trust signals before you buy." />
+    <title>TrustShield AI — Make your next click with confidence</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#home" aria-label="TrustShield AI home">
+        <span class="brand-mark"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3 27 7v8.2c0 7.1-4.8 11.8-11 14.8C9.8 27 5 22.3 5 15.2V7l11-4Z"/><path class="mark-check" d="m11 15.8 3.2 3.1 6.8-7"/></svg></span>
+        <span>TrustShield<span class="brand-ai">AI</span></span>
+      </a>
+      <nav class="main-nav" id="main-nav" aria-label="Main navigation">
+        <a href="#home" data-nav="home">Overview</a>
+        <a href="#community" data-nav="community">Community</a>
+        <a href="#dashboard" data-nav="dashboard">My activity</a>
+      </nav>
+      <div class="top-actions"><span class="privacy-note"><span class="privacy-dot"></span>Private by design</span><button class="button button-quiet auth-button" id="auth-button">Sign in</button><button class="mobile-menu" id="mobile-menu" aria-label="Toggle navigation" aria-expanded="false"><span></span><span></span></button></div>
+    </header>
+
+    <main>
+      <section class="hero section-wrap" id="home">
+        <div class="hero-copy">
+          <div class="eyebrow"><span class="eyebrow-icon">✳</span> A clearer view of online trust</div>
+          <h1>Know before<br />you <span class="accent-text">click.</span></h1>
+          <p class="hero-subtitle">Get a transparent look at a website’s security, policies, and community history before you shop or share information.</p>
+          <div class="scan-form" role="search">
+            <span class="input-globe" aria-hidden="true">◎</span>
+            <label class="sr-only" for="scan-url">Website address</label>
+            <input id="scan-url" type="url" placeholder="Paste a website link to check" autocomplete="url" />
+            <button id="scan-button" class="button button-primary"><span>Check website</span><span aria-hidden="true">↗</span></button>
+          </div>
+          <div class="scan-footnote"><span class="lock-icon">⌑</span> Free to check · No account needed <span class="separator">·</span> We never contact or interact with the seller</div>
+          <div class="hero-proof"><div class="proof-icon-row"><span>✓</span><span>↗</span><span>◎</span></div><span>Evidence first. Clear about what we can’t verify.</span></div>
+        </div>
+        <div class="hero-art" aria-label="Trust assessment illustration">
+          <div class="art-orb orb-one"></div><div class="art-orb orb-two"></div>
+          <div class="dot-grid"></div>
+          <div class="scan-window">
+            <div class="window-bar"><div class="window-dots"><i></i><i></i><i></i></div><span>ILLUSTRATIVE EXAMPLE</span><span class="window-menu">···</span></div>
+            <div class="window-domain"><span class="domain-favicon">n</span><div><strong>northstar-outfitters.com</strong><small>Storefront · scanned just now</small></div><span class="window-check">✓</span></div>
+            <div class="window-score"><div class="score-ring"><svg viewBox="0 0 100 100"><circle class="ring-track" cx="50" cy="50" r="42"/><circle class="ring-progress" cx="50" cy="50" r="42"/></svg><div><strong>72</strong><small>of 100</small></div></div><div class="score-copy"><span class="mini-status"><i></i> Some caution signals</span><strong>A few things to<br />take a closer look at.</strong><small>Here’s what we found</small></div></div>
+            <div class="window-findings"><div class="finding-row"><span class="finding-icon green">✓</span><span><b>Secure connection</b><small>HTTPS is enabled</small></span><span class="finding-state">Found</span></div><div class="finding-row"><span class="finding-icon amber">!</span><span><b>Return policy</b><small>Couldn’t locate details</small></span><span class="finding-state muted">Unclear</span></div><div class="finding-row"><span class="finding-icon blue">↗</span><span><b>Community reports</b><small>No reports on file</small></span><span class="finding-state muted">—</span></div></div>
+            <div class="window-disclaimer"><span>ⓘ</span> Signals are clues, not a guarantee.</div>
+          </div>
+          <div class="floating-chip"><span class="chip-spark">✦</span><span><b>Evidence-backed</b><small>Every finding explained</small></span></div>
+          <div class="floating-shield">✓</div>
+        </div>
+      </section>
+
+      <section class="trust-strip"><div class="trust-strip-inner"><span>ONE CHECK, MORE CLARITY</span><div><b>01</b> Website security</div><div><b>02</b> Seller transparency</div><div><b>03</b> Community context</div><div><b>04</b> Practical next steps</div></div></section>
+
+      <section class="content-section section-wrap" id="results-section" hidden>
+        <div class="section-heading result-heading"><div><div class="eyebrow"><span class="eyebrow-icon">✳</span> YOUR TRUST REPORT</div><h2>Here’s what we found.</h2></div><button class="button button-outline" id="new-scan">New check <span>＋</span></button></div>
+        <div id="result-container" aria-live="polite"></div>
+      </section>
+
+      <section class="content-section section-wrap" id="community">
+        <div class="section-heading"><div><div class="eyebrow"><span class="eyebrow-icon">⌘</span> SAFER, TOGETHER</div><h2>A community that<br />looks out for each other.</h2></div><div class="heading-side"><p>See reports shared by people like you. Each report has a clear status, so you can tell what’s been reviewed and what’s still a claim.</p><button class="text-link" id="open-report">Share a concern <span>↗</span></button></div></div>
+        <div class="community-toolbar"><div class="community-label"><span class="live-dot"></span> COMMUNITY REPORTS <span class="report-count" id="report-count">0</span></div><div class="community-filters"><label class="search-box"><span>⌕</span><input id="report-search" placeholder="Search website or business" aria-label="Search reports" /></label><label class="select-wrap"><span class="sr-only">Filter by verification status</span><select id="report-filter"><option value="all">All statuses</option><option>Submitted</option><option>Under Review</option><option>Evidence Requested</option><option>Partially Verified</option><option>Verified</option><option>Rejected</option><option>Disputed</option></select><span aria-hidden="true">⌄</span></label></div></div>
+        <div class="reports-grid" id="reports-grid"><div class="empty-card"><span class="empty-illustration">◎</span><strong>Your community starts here.</strong><p>There are no reports yet. If something felt off, you can help others by sharing what happened.</p><button class="button button-outline" id="empty-report">Submit the first report <span>↗</span></button></div></div>
+        <div class="community-note"><span>ⓘ</span> Community reports are user-submitted and may be unverified. Review the status and evidence before drawing conclusions.</div>
+      </section>
+
+      <section class="how-section"><div class="section-wrap"><div class="center-heading"><div class="eyebrow"><span class="eyebrow-icon">✳</span> SIMPLE BY DESIGN</div><h2>A little more clarity.<br /><span class="accent-text">Three simple steps.</span></h2></div><div class="steps-grid"><article class="step-card"><span class="step-number">01</span><div class="step-art step-art-search"><span class="step-search-icon">⌕</span><i></i><i></i></div><h3>Enter a website</h3><p>Paste the link you’re unsure about. No account or personal details needed.</p></article><article class="step-card"><span class="step-number">02</span><div class="step-art step-art-check"><span>✓</span><i></i><i></i></div><h3>Review the evidence</h3><p>We check visible security and transparency signals, and show what we could and couldn’t verify.</p></article><article class="step-card"><span class="step-number">03</span><div class="step-art step-art-decide"><div class="mini-card"><b>Clear findings</b><span>↗ &nbsp; Your next step</span><span>✓ &nbsp; Evidence checked</span></div></div><h3>Choose with confidence</h3><p>Get practical next steps and community context to help you make an informed choice.</p></article></div></div></section>
+
+      <section class="safety-section section-wrap"><div class="safety-card"><div class="safety-icon"><svg viewBox="0 0 42 42" aria-hidden="true"><path d="M21 3.5 36 9v11c0 9.7-6.5 16.1-15 20-8.5-3.9-15-10.3-15-20V9l15-5.5Z"/><path d="m14.5 21 4.3 4.2 8.7-9"/></svg></div><div><div class="eyebrow">OUR PROMISE TO YOU</div><h2>Honest signals. No false certainty.</h2><p>TrustShield points out signals, not verdicts. A secure connection doesn’t guarantee an honest seller, and a missing policy doesn’t prove fraud. We’ll always explain what we checked—and what we couldn’t.</p></div><a class="text-link" href="#faq">How we assess <span>↗</span></a></div></section>
+
+      <section class="content-section dashboard-section section-wrap" id="dashboard"><div class="section-heading"><div><div class="eyebrow"><span class="eyebrow-icon">◷</span> YOUR ACTIVITY</div><h2>A handy history of your checks.</h2></div><div class="heading-side"><p>Account scans and reports saved on this browser.</p></div></div><div class="activity-panel"><div class="activity-tabs"><button class="activity-tab active" data-tab="scans">Recent scans <span id="scan-count">0</span></button><button class="activity-tab" data-tab="my-reports">My reports <span id="my-report-count">0</span></button></div><div id="activity-list" class="activity-list"></div></div></section>
+
+      <section class="faq-section section-wrap" id="faq"><div class="faq-intro"><div class="eyebrow"><span class="eyebrow-icon">?</span> GOOD TO KNOW</div><h2>Clear answers<br />for safer browsing.</h2><p>Trust works better when you know exactly what’s behind it.</p></div><div class="faq-list"><details><summary>Does a high score mean a website is safe?<span>＋</span></summary><p>No score can guarantee a website is safe. A high score only means our selected checks found few warning signals. Sellers and websites can change, and some harmful behavior cannot be detected by an automated scan.</p></details><details><summary>What does a “missing” signal mean?<span>＋</span></summary><p>It means we couldn’t find that information in the page we could access. It may exist elsewhere or be temporarily unavailable. Missing information is not proof of fraud.</p></details><details><summary>Are community reports verified?<span>＋</span></summary><p>Reports start as user-submitted claims. They are labeled with their current review status. A report is not treated as verified unless a moderator records a decision based on the available evidence.</p></details><details><summary>Do you send information to the website?<span>＋</span></summary><p>No. TrustShield makes a limited read-only request to retrieve a public page. It won’t log in, place an order, or submit any forms on the site.</p></details></div></section>
+
+      <section class="closing-cta"><div><span class="cta-spark">✳</span><h2>Wondering about a website?</h2><p>A few seconds of checking can give you more to go on.</p><button class="button button-white" id="cta-scan">Check a website <span>↗</span></button></div><div class="cta-orb"></div></section>
+    </main>
+
+    <footer class="footer section-wrap"><a class="brand" href="#home"><span class="brand-mark"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3 27 7v8.2c0 7.1-4.8 11.8-11 14.8C9.8 27 5 22.3 5 15.2V7l11-4Z"/><path class="mark-check" d="m11 15.8 3.2 3.1 6.8-7"/></svg></span><span>TrustShield<span class="brand-ai">AI</span></span></a><span>Clearer signals for a safer internet.</span><div><a href="#faq">How it works</a><button id="footer-report">Submit a report</button><span>© 2026 TrustShield AI</span></div></footer>
+
+    <dialog class="modal" id="report-modal"><form id="report-form" novalidate><div class="modal-heading"><div><div class="eyebrow"><span class="eyebrow-icon">⌘</span> COMMUNITY REPORT</div><h2>Share what happened.</h2></div><button type="button" class="modal-close" data-close aria-label="Close report form">×</button></div><p class="modal-intro">Your report helps others make informed choices. Claims are labeled as unverified until reviewed.</p><label class="field-label" for="report-url">Website address <span class="required">*</span></label><input class="form-input" id="report-url" name="url" placeholder="https://example.com" required />
+      <label class="field-label" for="report-business">Business or platform name</label><input class="form-input" id="report-business" name="business" maxlength="120" placeholder="If known" />
+      <label class="field-label" for="report-category">What happened? <span class="required">*</span></label><select class="form-input" id="report-category" name="category" required><option value="">Choose a concern</option><option>Suspicious payment request</option><option>Fake or impersonating store</option><option>Missing or misleading policy</option><option>Non-delivery after payment</option><option>Other concern</option></select>
+      <label class="field-label" for="report-details">Tell us what happened <span class="required">*</span></label><textarea class="form-input" id="report-details" name="details" rows="4" minlength="12" maxlength="4000" placeholder="What did you see or experience? Please avoid sharing passwords or payment card details." required></textarea>
+      <div class="form-two"><div><label class="field-label" for="report-date">Date of incident</label><input class="form-input" id="report-date" name="incident_date" type="date" /></div><div><label class="field-label" for="report-amount">Amount involved (optional)</label><input class="form-input" id="report-amount" name="amount" maxlength="60" placeholder="e.g. $45 USD" /></div></div>
+      <label class="field-label" for="report-reference">Transaction reference (optional)</label><input class="form-input" id="report-reference" name="reference" maxlength="120" placeholder="Do not include card or bank details" />
+      <label class="field-label" for="report-links">Related links (optional)</label><textarea class="form-input" id="report-links" name="links" rows="2" maxlength="1000" placeholder="A product page, policy, or message URL"></textarea>
+      <label class="field-label" for="report-evidence">Supporting file (optional)</label><input class="form-input file-input" id="report-evidence" name="evidence" type="file" accept="image/png,image/jpeg,image/webp,application/pdf,.txt" /><span class="field-hint">PNG, JPG, WEBP, PDF or TXT. Max 2 MB. Please redact personal and payment information. A file does not prove a claim.</span>
+      <label class="check-label"><input type="checkbox" id="report-agree" required /> <span>I understand this report is a claim and may be shared with the community after review, without my email or transaction details.</span></label>
+      <div class="form-error" id="report-error" role="alert"></div><button class="button button-primary submit-report" type="submit"><span>Submit report</span><span>↗</span></button><div class="privacy-hint">ⓘ You can submit without signing in. Never share passwords, full card numbers, or bank credentials.</div></form></dialog>
+
+    <dialog class="modal auth-modal" id="auth-modal"><form id="auth-form"><div class="modal-heading"><div><div class="eyebrow"><span class="eyebrow-icon">✳</span> YOUR TRUSTSHIELD ACCOUNT</div><h2 id="auth-title">Welcome back.</h2></div><button type="button" class="modal-close" data-close aria-label="Close sign in">×</button></div><p class="modal-intro" id="auth-copy">Sign in to track your scans and reports across visits.</p><div id="auth-name-wrap" hidden><label class="field-label" for="auth-name">Name</label><input class="form-input" id="auth-name" maxlength="100" autocomplete="name" /></div><label class="field-label" for="auth-email">Email</label><input class="form-input" id="auth-email" type="email" autocomplete="email" required /><label class="field-label" for="auth-password">Password</label><input class="form-input" id="auth-password" type="password" minlength="10" autocomplete="current-password" required /><div id="auth-admin-wrap" hidden><label class="field-label" for="auth-admin-token">Administrator setup token</label><input class="form-input" id="auth-admin-token" type="password" autocomplete="off" /><span class="field-hint">Only needed for the first administrator account. The token is set by the server operator.</span></div><div class="form-error" id="auth-error" role="alert"></div><button class="button button-primary submit-report" id="auth-submit" type="submit">Sign in <span>↗</span></button><button class="text-link auth-switch" type="button" id="auth-switch">Create an account <span>→</span></button></form></dialog>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

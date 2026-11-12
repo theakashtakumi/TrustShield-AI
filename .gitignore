@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+trustshield.db
+uploads/
+.env
+.pytest_cache/
+tests/tmp*/
