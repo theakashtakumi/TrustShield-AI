@@ -27,7 +27,13 @@ async function api(path, options = {}) {
   const response = await fetch(path, { credentials: 'same-origin', ...options,
     headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(guestTokens ? { 'X-TrustShield-Guest-Tokens': guestTokens } : {}), ...(options.headers || {}) } });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || `Request failed (${response.status}).`);
+  if (!response.ok) {
+    const message = body.error || '';
+    if (response.status === 404 && (!message || message === 'Not found.')) {
+      throw new Error('TrustShield API not found. For local use, run `python server.py` and open http://127.0.0.1:8000. Static hosting such as Vercel serves the page only; it needs a separately hosted backend for sign in and account creation.');
+    }
+    throw new Error(message || `Request failed (${response.status}).`);
+  }
   return body;
 }
 
