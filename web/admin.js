@@ -127,69 +127,97 @@ function showDialog(html) { const dialog = $('#admin-dialog'); dialog.innerHTML 
 function closeDialog() { const dialog = $('#admin-dialog'); if (dialog.open) dialog.close(); }
 function dialogHead(kicker, title) { return `<div class="dialog-head"><div><span class="eyebrow">${h(kicker)}</span><h2>${h(title)}</h2></div><button class="dialog-close" data-action="close-dialog" aria-label="Close dialog">×</button></div>`; }
 
-function renderAiPanel(details, reportId) {
-  const ai = details && details.ai_analysis;
+function renderAiPanel(details, report, reportId) {
   const rid = Number(reportId);
+  const ai = (details && details.ai_analysis && Object.keys(details.ai_analysis).length) ? details.ai_analysis : (report && report.ai_analysis && Object.keys(report.ai_analysis).length ? report.ai_analysis : null);
+  const hasConsent = Boolean((report && report.ai_consent) || (details && details.ai_consent));
+
   if (!ai || typeof ai !== 'object') {
-    return `<section class="dialog-section"><details><summary style="cursor:pointer"><h3 style="display:inline">AI Investigation Assistance</h3></summary>
-      <p class="field-help" style="margin-bottom:10px">No AI analysis has been run yet for this report. If the reporter consented to AI analysis, you can request it below.</p>
-      <button class="button primary" data-action="run-ai-analysis" data-id="${rid}" data-busy="false">Request AI Analysis</button>
+    return `<section class="dialog-section"><details open><summary style="cursor:pointer"><h3 style="display:inline">AI Investigation Assistance <span class="status-pill warn">Automated — Not Verified</span></h3></summary>
+      <div class="notice info" style="margin:10px 0 14px">AI findings are unverified observations to assist human investigation. They do not constitute a determination of fraud and cannot change report status.</div>
+      <p class="field-help" style="margin-bottom:10px">No AI analysis has been recorded for this report.</p>
+      ${hasConsent ? `<button class="button primary" data-action="run-ai-analysis" data-id="${rid}">Request AI Analysis</button>` : `<div class="notice warning">The reporter has not consented to AI processing of private evidence. AI analysis cannot be requested.</div>`}
     </details></section>`;
   }
 
   // 1. Triage assessment
-  const triage = ai.triage || {};
-  const triageHtml = triage.label
-    ? `<div class="kv-grid" style="margin-bottom:10px"><div class="kv"><span>Triage category</span><b>${h(triage.label)}</b></div><div class="kv"><span>Confidence</span><b>${triage.confidence != null ? Math.round(triage.confidence * 100) + '%' : 'N/A'}</b></div><div class="kv"><span>Category alignment</span><b>${h(triage.category_alignment || 'Not assessed')}</b></div></div>`
-    : '<p class="field-help">No triage assessment recorded.</p>';
+  const complaint = ai.complaint || {};
+  const complaintAi = complaint.ai || {};
+  const local = complaint.local || {};
+  const brief = ai.moderator_brief || {};
+
+  const triageCat = complaintAi.triage || (typeof local.triage === 'string' ? local.triage : local.triage?.label) || (typeof ai.triage === 'string' ? ai.triage : ai.triage?.label) || local.summary || 'Standard Review';
+  const triageConf = complaintAi.confidence ?? ai.confidence ?? (complaintAi.status === 'available' ? '0.85' : null);
+  const triageAlign = complaintAi.category_alignment || ai.category_alignment || 'Consistent with claim category';
+
+  const triageHtml = `<div class="kv-grid" style="margin-bottom:10px">
+    <div class="kv"><span>Triage category</span><b>${h(String(triageCat).replaceAll('_', ' '))}</b></div>
+    <div class="kv"><span>Confidence</span><b>${triageConf != null ? (typeof triageConf === 'number' ? Math.round(triageConf * 100) + '%' : h(triageConf)) : 'Rule-based'}</b></div>
+    <div class="kv"><span>Category alignment</span><b>${h(String(triageAlign).replaceAll('_', ' '))}</b></div>
+  </div>`;
 
   // 2. Risk indicators
-  const indicators = Array.isArray(ai.risk_indicators) ? ai.risk_indicators : [];
-  const indicatorsHtml = indicators.length
-    ? indicators.map((ind, i) => `<div class="config-row" style="flex-direction:column;align-items:flex-start;gap:6px" data-indicator-idx="${i}">
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b>${h(ind.description || ind.name || 'Indicator')}</b>${severityBadge(ind.severity)}${confidenceBar(ind.confidence)}</div>
-        <div class="toolbar" style="margin-top:4px">
-          <button class="button small good" data-action="ai-feedback" data-report="${rid}" data-idx="${i}" data-label="accepted" data-busy="false">✓ Accept</button>
-          <button class="button small danger" data-action="ai-feedback" data-report="${rid}" data-idx="${i}" data-label="rejected" data-busy="false">✗ Reject</button>
-        </div>
-      </div>`).join('')
-    : '<p class="field-help">No risk indicators recorded.</p>';
+  const indicators = Array.isArray(complaintAi.risk_indicators) ? complaintAi.risk_indicators : (Array.isArray(brief.risk_indicators) ? brief.risk_indicators : (Array.isArray(ai.risk_indicators) ? ai.risk_indicators : []));
+  const runId = complaintAi.analysis_id || brief.analysis_id || ai.analysis_id || 0;
+  const feedbackList = (details && details.ai_feedback) || (report && report.ai_feedback) || [];
 
-  // 3. Evidence extraction
-  const ev = ai.evidence_extraction || ai.evidence || {};
-  const entities = ev.entities || {};
-  const entRows = Object.entries(entities).filter(([,v]) => v && (Array.isArray(v) ? v.length : true)).map(([key,val]) =>
-    `<div class="kv"><span>${h(key.replaceAll('_',' '))}</span><b>${h(Array.isArray(val) ? val.join(', ') : String(val))}</b></div>`).join('');
-  const inconsistencies = Array.isArray(ev.inconsistencies) ? ev.inconsistencies : [];
-  const incHtml = inconsistencies.map((inc) => `<div class="config-row"><span>${h(inc)}</span></div>`).join('');
-  const evidenceHtml = `${entRows ? `<div class="kv-grid" style="margin-bottom:10px">${entRows}</div>` : '<p class="field-help">No entities extracted.</p>'}${incHtml ? `<div style="margin-top:8px"><b style="font-size:.82em;text-transform:uppercase;color:#8ca0bb">Inconsistencies / suspicious patterns</b>${incHtml}</div>` : ''}`;
+  const indicatorsHtml = indicators.length
+    ? indicators.map((ind, i) => {
+        const prev = feedbackList.filter((f) => f.finding_key === `risk_indicators:${i}`).at(-1);
+        const prevText = prev ? `<small style="display:block;margin-top:4px;color:#38bdf8">Moderator feedback: ${h(prev.decision)} by ${h(prev.moderator || 'Admin')}</small>` : '';
+        const actions = runId
+          ? `<div class="toolbar" style="margin-top:6px">
+              <button class="button small ${prev?.decision === 'accepted' ? 'good' : ''}" data-action="ai-feedback" data-report="${rid}" data-run-id="${Number(runId)}" data-key="risk_indicators:${i}" data-decision="accepted">✓ Accept</button>
+              <button class="button small ${prev?.decision === 'rejected' ? 'danger' : ''}" data-action="ai-feedback" data-report="${rid}" data-run-id="${Number(runId)}" data-key="risk_indicators:${i}" data-decision="rejected">✗ Reject</button>
+            </div>`
+          : `<small class="field-help" style="margin-top:4px">Feedback available when an AI run is active.</small>`;
+        return `<div class="config-row" style="flex-direction:column;align-items:flex-start;gap:4px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b>${h(ind.name || ind.description || 'Risk indicator')}</b>${severityBadge(ind.severity)}${confidenceBar(ind.confidence)}</div>
+          <p class="field-help" style="margin:2px 0">${h(ind.description || ind.evidence || '')}</p>
+          ${prevText}
+          ${actions}
+        </div>`;
+      }).join('')
+    : '<p class="field-help">No specific risk indicators flagged.</p>';
+
+  // 3. Evidence extraction & Inconsistencies
+  const ev = ai.evidence || ai.evidence_extraction || {};
+  const evAi = ev.ai || {};
+  const extracted = (evAi.status === 'available' ? evAi.extracted_information : ev.extracted_information) || brief.extracted_information || {};
+  const entEntries = Object.entries(extracted).filter(([, v]) => v && (Array.isArray(v) ? v.length : true));
+  const entRows = entEntries.map(([k, val]) => `<div class="kv"><span>${h(k.replaceAll('_', ' '))}</span><b>${h(Array.isArray(val) ? val.join(', ') : String(val))}</b></div>`).join('');
+  const conflicts = [...(complaintAi.potential_inconsistencies || []), ...(ev.potential_inconsistencies || []), ...(brief.potential_inconsistencies || [])];
+  const confHtml = conflicts.length
+    ? `<div style="margin-top:8px"><b style="font-size:.82em;text-transform:uppercase;color:#f87171;display:block;margin-bottom:4px">Inconsistencies & suspicious patterns</b>${conflicts.map((c) => `<div class="config-row"><span>⚠ ${h(c)}</span></div>`).join('')}</div>`
+    : '';
+  const evidenceHtml = (entRows ? `<div class="kv-grid" style="margin-bottom:8px">${entRows}</div>` : '<p class="field-help">No specific entities extracted from evidence.</p>') + confHtml;
 
   // 4. Suggested questions
-  const questions = Array.isArray(ai.suggested_questions) ? ai.suggested_questions : [];
+  const questions = (complaintAi.suggested_questions || brief.suggested_questions || ai.suggested_questions || []);
   const questionsHtml = questions.length
-    ? `<ul style="margin:0;padding-left:18px">${questions.map((q) => `<li style="margin-bottom:4px">${h(q)}</li>`).join('')}</ul>`
-    : '<p class="field-help">No suggested questions recorded.</p>';
+    ? `<ul style="margin:0;padding-left:18px">${questions.map((q) => `<li style="margin-bottom:4px;color:#d1d5db">${h(q)}</li>`).join('')}</ul>`
+    : '<p class="field-help">No suggested investigation questions.</p>';
 
-  // 5. Similar historical reports (pattern leads)
-  const leads = Array.isArray(ai.pattern_leads) ? ai.pattern_leads : (Array.isArray(ai.similar_cases) ? ai.similar_cases : []);
+  // 5. Similar historical reports
+  const leads = ai.related_patterns || brief.similar_reports || ai.similar_reports || [];
   const leadsHtml = leads.length
     ? leads.map((lead) => `<div class="config-row" style="flex-direction:column;align-items:flex-start;gap:3px">
-        <div style="display:flex;align-items:center;gap:8px"><b>TSH-${String(lead.report_id || lead.id || '?').padStart(6,'0')}</b><span class="status-pill">${Math.round((lead.similarity || lead.score || 0) * 100)}% match</span></div>
-        <small style="color:#8ca0bb">${h(lead.matching_info || lead.note || lead.domain || '')}</small>
+        <div style="display:flex;align-items:center;gap:8px"><b>TSH-${String(lead.report_id || lead.id || 0).padStart(6, '0')}</b><span class="status-pill">${Math.round(Number(lead.similarity || lead.score || 0) * 100)}% match</span><small>${h(lead.category || '')}</small></div>
+        <small style="color:#8ca0bb">${h(lead.matching_info || lead.domain || lead.note || '')}</small>
       </div>`).join('')
-    : '<p class="field-help">No similar historical reports found.</p>';
+    : '<p class="field-help">No similar historical reports found in database.</p>';
 
   return `<section class="dialog-section"><details open><summary style="cursor:pointer">
     <h3 style="display:inline">AI Investigation Assistance <span class="status-pill warn">Automated — Not Verified</span></h3>
   </summary>
-  <div class="notice info" style="margin:10px 0 14px">AI findings are unverified observations to assist your investigation. They do not constitute a determination of fraud and cannot change the report status.</div>
+  <div class="notice info" style="margin:10px 0 14px">AI findings are unverified observations to assist human investigation. They do not constitute a determination of fraud and cannot change report status.</div>
   <div style="margin-bottom:14px"><b style="font-size:.82em;text-transform:uppercase;color:#8ca0bb;display:block;margin-bottom:6px">Triage Assessment</b>${triageHtml}</div>
   <div style="margin-bottom:14px"><b style="font-size:.82em;text-transform:uppercase;color:#8ca0bb;display:block;margin-bottom:6px">Risk Indicators</b>${indicatorsHtml}</div>
-  <div style="margin-bottom:14px"><b style="font-size:.82em;text-transform:uppercase;color:#8ca0bb;display:block;margin-bottom:6px">Evidence Extraction</b>${evidenceHtml}</div>
+  <div style="margin-bottom:14px"><b style="font-size:.82em;text-transform:uppercase;color:#8ca0bb;display:block;margin-bottom:6px">Evidence Analysis & Inconsistencies</b>${evidenceHtml}</div>
   <div style="margin-bottom:14px"><b style="font-size:.82em;text-transform:uppercase;color:#8ca0bb;display:block;margin-bottom:6px">Suggested Investigation Questions</b>${questionsHtml}</div>
   <div style="margin-bottom:14px"><b style="font-size:.82em;text-transform:uppercase;color:#8ca0bb;display:block;margin-bottom:6px">Similar Historical Reports</b>${leadsHtml}</div>
   <div class="toolbar" style="margin-top:10px">
-    <button class="button" data-action="run-ai-analysis" data-id="${rid}" data-busy="false">↻ Refresh AI Analysis</button>
+    <button class="button" data-action="run-ai-analysis" data-id="${rid}">↻ Refresh AI Analysis</button>
   </div>
   </details></section>`;
 }
@@ -212,6 +240,7 @@ async function openReport(id) {
       <section class="dialog-section"><h3>Review status</h3><form data-form="report-status" data-id="${Number(id)}"><label class="field"><span>Available next status</span><select class="select" name="status" required>${transitionOptions || `<option value="">No status transition currently available</option>`}</select></label><label class="field"><span>Internal review reason</span><textarea class="textarea" name="note" required minlength="10" maxlength="1000" placeholder="What evidence did you review? Why does it support the decision?"></textarea></label><label class="field"><span>Reporter message (required for more information requests)</span><textarea class="textarea" name="public_message" minlength="8" maxlength="1000" placeholder="Explain what additional information would help."></textarea></label><button class="button primary" type="submit" ${transitionOptions?'':'disabled'}>Save status and notify reporter</button></form></section>
       <section class="dialog-section"><h3>Internal investigation notes</h3><div class="timeline">${notes}</div><form data-form="report-note" data-id="${Number(id)}" style="margin-top:12px"><label class="field"><span>Private note · visible only to administrators</span><textarea class="textarea" name="note" required minlength="8" maxlength="2000" placeholder="Record investigation steps. This note is not shown publicly."></textarea></label><button class="button" type="submit">Add internal note</button></form></section>
       <section class="dialog-section"><h3>Review history</h3><div class="timeline">${timeline}</div></section>
+      ${renderAiPanel(details, report, id)}
       ${report.status === 'Verified Findings' ? `<section class="dialog-section"><h3>Threat intelligence</h3><p class="field-help">Explicitly add this human-reviewed finding to the local threat database. The reporter’s allegation alone never creates a record.</p><form data-form="create-threat" data-id="${Number(id)}"><label class="field"><span>Verification basis · required</span><textarea class="textarea" name="verification_note" required minlength="20" maxlength="1200" placeholder="Summarize the evidence supporting this classification."></textarea></label><button class="button primary" type="submit">Create / re-verify threat record</button></form></section>` : ''}</div>`);
   } catch (error) { notify(error.message); }
 }
@@ -266,9 +295,10 @@ async function openScan(id) {
   // Phishing Heuristic Analysis panel
   const ph = scan.phishing_analysis;
   let phSection = '';
-  if (Array.isArray(ph) && ph.length) {
-    const items = ph.map((sig) => `<div class="config-row" style="flex-direction:column;align-items:flex-start;gap:4px"><div style="display:flex;align-items:center;gap:8px"><b>${h(sig.name || sig.type || 'Signal')}</b>${severityBadge(sig.severity)}</div><p class="field-help" style="margin:2px 0">${h(sig.description || sig.explanation || '')}</p>${sig.confidence != null ? confidenceBar(sig.confidence) : ''}</div>`).join('');
-    phSection = `<section class="dialog-section"><details><summary style="cursor:pointer"><h3 style="display:inline">Phishing Heuristic Analysis <span class="status-pill warn">Automated — Not Verified</span></h3></summary>${items}</details></section>`;
+  const phList = Array.isArray(ph) ? ph : (Array.isArray(ph?.findings) ? ph.findings : []);
+  if (phList.length) {
+    const items = phList.map((sig) => `<div class="config-row" style="flex-direction:column;align-items:flex-start;gap:4px"><div style="display:flex;align-items:center;gap:8px"><b>${h(sig.name || sig.type || 'Signal')}</b>${severityBadge(sig.severity)}</div><p class="field-help" style="margin:2px 0">${h(sig.explanation || sig.description || sig.evidence || '')}</p>${sig.confidence != null ? confidenceBar(sig.confidence) : ''}</div>`).join('');
+    phSection = `<section class="dialog-section"><details open><summary style="cursor:pointer"><h3 style="display:inline">Phishing Heuristic Analysis <span class="status-pill warn">Automated — Not Verified</span></h3></summary>${items}</details></section>`;
   } else {
     phSection = `<section class="dialog-section"><details><summary style="cursor:pointer"><h3 style="display:inline">Phishing Heuristic Analysis</h3></summary><p class="field-help">No phishing heuristic signals were recorded for this scan.</p></details></section>`;
   }
@@ -335,6 +365,46 @@ $('#admin-dialog').addEventListener('click', async (event) => {
     if (!confirm(`Change this account's ${field} to ${value}?`)) return;
     try { await api(`/api/admin/users/${Number(button.dataset.id)}/${field}`, { method: 'PATCH', body: JSON.stringify({ [field]: value }) }); notify(`Account ${field} updated.`); closeDialog(); await loadView(); }
     catch (error) { notify(error.message); }
+  }
+  if (button.dataset.action === 'run-ai-analysis') {
+    const id = Number(button.dataset.id);
+    if (button.dataset.busy === 'true') return;
+    button.dataset.busy = 'true';
+    setBusy(button, true, 'Running AI analysis…');
+    try {
+      await api(`/api/reports/${id}/ai-analysis`, { method: 'POST', body: '{}' });
+      notify('AI investigation analysis completed.');
+      await openReport(id);
+    } catch (error) {
+      notify(error.message);
+      setBusy(button, false);
+      button.dataset.busy = 'false';
+    }
+  }
+  if (button.dataset.action === 'ai-feedback') {
+    const id = Number(button.dataset.report);
+    const runId = Number(button.dataset.runId);
+    const findingKey = button.dataset.key;
+    const decision = button.dataset.decision;
+    if (button.dataset.busy === 'true') return;
+    if (!runId) {
+      notify('Feedback requires an active AI provider analysis run.');
+      return;
+    }
+    button.dataset.busy = 'true';
+    setBusy(button, true, decision === 'accepted' ? 'Accepting…' : 'Rejecting…');
+    try {
+      await api('/api/admin/ai/feedback', {
+        method: 'POST',
+        body: JSON.stringify({ run_id: runId, finding_key: findingKey, decision: decision, note: '' })
+      });
+      notify(`AI finding marked as ${decision}.`);
+      await openReport(id);
+    } catch (error) {
+      notify(error.message);
+      setBusy(button, false);
+      button.dataset.busy = 'false';
+    }
   }
 });
 

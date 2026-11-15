@@ -990,9 +990,13 @@ class Handler(BaseHTTPRequestHandler):
                 for row in rows:
                     try: row["checks"] = json.loads(row["checks"] or "[]")
                     except json.JSONDecodeError: row["checks"] = []
-                    try: row["ai_analysis"] = json.loads(row["ai_analysis"] or "null")
+                    try:
+                        row["ai_analysis"] = json.loads(row["ai_analysis"] or "null")
+                        if not row["ai_analysis"]: row["ai_analysis"] = None
                     except (json.JSONDecodeError, TypeError): row["ai_analysis"] = None
-                    try: row["phishing_analysis"] = json.loads(row["phishing_analysis"] or "null")
+                    try:
+                        row["phishing_analysis"] = json.loads(row["phishing_analysis"] or "null")
+                        if not row["phishing_analysis"]: row["phishing_analysis"] = None
                     except (json.JSONDecodeError, TypeError): row["phishing_analysis"] = None
                 return self.send_json({"scans": rows, "total": total, "page": page, "limit": limit}) or True
             if path == "/api/admin/reports":
@@ -1010,7 +1014,7 @@ class Handler(BaseHTTPRequestHandler):
                 rows = [dict(row) for row in conn.execute("""
                     SELECT r.id,r.url,r.domain,r.business,r.category,r.status,r.priority,r.assigned_to,r.created_at,r.public_summary,
                       u.name assigned_name,(CASE WHEN r.evidence_name<>'' THEN 1 ELSE 0 END + (SELECT COUNT(*) FROM report_attachments a WHERE a.report_id=r.id) + (SELECT COUNT(*) FROM report_followups f WHERE f.report_id=r.id AND f.evidence_path<>'')) evidence_count,
-                      (CASE WHEN r.ai_analysis IS NOT NULL AND r.ai_analysis<>'' AND r.ai_analysis<>'null' THEN 1 ELSE 0 END) has_ai
+                      (CASE WHEN r.ai_analysis IS NOT NULL AND r.ai_analysis<>'' AND r.ai_analysis<>'null' AND r.ai_analysis<>'{}' THEN 1 ELSE 0 END) has_ai
                     FROM reports r LEFT JOIN users u ON u.id=r.assigned_to
                 """ + condition + " ORDER BY CASE r.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, r.created_at DESC LIMIT ? OFFSET ?", (*args, limit, offset))]
                 return self.send_json({"reports": rows, "total": total, "page": page, "limit": limit}) or True
@@ -1020,6 +1024,11 @@ class Handler(BaseHTTPRequestHandler):
                 if not report:
                     self.send_json({"error": "Report not found."}, 404); return True
                 result = dict(report)
+                try: result["ai_analysis"] = json.loads(result.get("ai_analysis") or "{}") if isinstance(result.get("ai_analysis"), str) else (result.get("ai_analysis") or {})
+                except (json.JSONDecodeError, TypeError): result["ai_analysis"] = {}
+                try: result["evidence_analysis"] = json.loads(result.get("evidence_analysis") or "{}") if isinstance(result.get("evidence_analysis"), str) else (result.get("evidence_analysis") or {})
+                except (json.JSONDecodeError, TypeError): result["evidence_analysis"] = {}
+                result["ai_feedback"] = [dict(item) for item in conn.execute("SELECT f.run_id,f.finding_key,f.decision,f.note,f.created_at,u.name AS moderator FROM ai_feedback AS f JOIN ai_runs AS run ON run.id=f.run_id JOIN users AS u ON u.id=f.moderator_id WHERE run.resource_type='report' AND run.resource_id=? ORDER BY f.id", (report_id,)).fetchall()]
                 result["notes"] = [dict(row) for row in conn.execute("SELECT n.id,n.note,n.created_at,u.name author_name FROM admin_report_notes n JOIN users u ON u.id=n.author_id WHERE n.report_id=? ORDER BY n.id DESC", (report_id,))]
                 result["timeline"] = [dict(row) for row in conn.execute("SELECT e.id,e.old_status,e.new_status,e.note,e.created_at,u.name moderator FROM moderation_events e LEFT JOIN users u ON u.id=e.moderator_id WHERE e.report_id=? ORDER BY e.id", (report_id,))]
                 result["attachments"] = [dict(row) for row in conn.execute("SELECT id,evidence_name,mime_type,size_bytes,created_at FROM report_attachments WHERE report_id=? ORDER BY id", (report_id,))]
