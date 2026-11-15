@@ -60,15 +60,16 @@ STATUS_TRANSITIONS = {
 
 class SafeRedirect(urllib.request.HTTPRedirectHandler):
     """Validate each redirect before urllib makes the next network request."""
-    def __init__(self):
+    def __init__(self, max_redirects=MAX_REDIRECTS):
         super().__init__()
+        self.max_redirects = max_redirects
         self.redirects = 0
         self.hops = []
         self.resolution_cache = {}
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         self.redirects += 1
-        if self.redirects > MAX_REDIRECTS:
+        if self.redirects > self.max_redirects:
             raise ValueError("The website redirected too many times.")
         absolute = urllib.parse.urljoin(req.full_url, newurl)
         parts = urllib.parse.urlsplit(absolute)
@@ -148,6 +149,27 @@ def now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def audit_admin_action(conn, actor_id, action, resource_type, resource_id="", *, previous=None, new=None, metadata=None):
+    """Append an administrator action without storing secrets or private report text."""
+    conn.execute(
+        "INSERT INTO admin_audit_events(actor_id,action,resource_type,resource_id,previous_json,new_json,metadata_json,created_at) VALUES(?,?,?,?,?,?,?,?)",
+        (actor_id, str(action)[:80], str(resource_type)[:60], str(resource_id)[:100],
+         json.dumps(previous or {}, ensure_ascii=False), json.dumps(new or {}, ensure_ascii=False),
+         json.dumps(metadata or {}, ensure_ascii=False), now()),
+    )
+
+
+def scanner_configuration():
+    with db() as conn:
+        values = {row["setting_key"]: row["setting_value"] for row in conn.execute("SELECT setting_key,setting_value FROM scanner_settings")}
+    return {
+        "request_timeout_seconds": max(3, min(20, int(values.get("request_timeout_seconds", TIMEOUT)))),
+        "max_redirects": max(0, min(10, int(values.get("max_redirects", MAX_REDIRECTS)))),
+        "phishing_heuristics_enabled": values.get("phishing_heuristics_enabled", "true") == "true",
+        "ai_content_analysis_enabled": values.get("ai_content_analysis_enabled", "true") == "true",
+    }
+
+
 def persist_ai_results(conn, resource_type, resource_id, value, *, user_consented=False):
     """Persist model provenance and validated outputs only; never store prompt/input text."""
     saved = []
@@ -211,6 +233,8 @@ def similar_report_candidates(conn, report):
 @contextmanager
 def db():
     conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -301,7 +325,50 @@ def init_db():
                 partition_name TEXT NOT NULL CHECK(partition_name IN ('training','evaluation','unassigned')),
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS admin_audit_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, actor_id INTEGER REFERENCES users(id),
+                action TEXT NOT NULL, resource_type TEXT NOT NULL, resource_id TEXT NOT NULL DEFAULT '',
+                previous_json TEXT NOT NULL DEFAULT '{}', new_json TEXT NOT NULL DEFAULT '{}',
+                metadata_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS scanner_settings (
+                setting_key TEXT PRIMARY KEY, setting_value TEXT NOT NULL, updated_by INTEGER REFERENCES users(id),
+                updated_at TEXT NOT NULL DEFAULT ''
+            );
+            CREATE TABLE IF NOT EXISTS threat_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, domain TEXT NOT NULL, category TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('verified','false_positive')),
+                source_report_id INTEGER NOT NULL UNIQUE REFERENCES reports(id),
+                created_by INTEGER NOT NULL REFERENCES users(id), reviewer_id INTEGER NOT NULL REFERENCES users(id),
+                verification_note TEXT NOT NULL, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL,
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS incidents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, severity TEXT NOT NULL
+                    CHECK(severity IN ('low','medium','high','critical')),
+                status TEXT NOT NULL CHECK(status IN ('new','investigating','contained','resolved','closed')),
+                assigned_to INTEGER REFERENCES users(id), created_by INTEGER NOT NULL REFERENCES users(id),
+                resolution_note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS incident_reports (
+                incident_id INTEGER NOT NULL REFERENCES incidents(id) ON DELETE CASCADE,
+                report_id INTEGER NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+                PRIMARY KEY(incident_id,report_id)
+            );
+            CREATE TABLE IF NOT EXISTS incident_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, incident_id INTEGER NOT NULL REFERENCES incidents(id) ON DELETE CASCADE,
+                actor_id INTEGER REFERENCES users(id), event_type TEXT NOT NULL,
+                previous_json TEXT NOT NULL DEFAULT '{}', new_json TEXT NOT NULL DEFAULT '{}',
+                note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS admin_report_notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, report_id INTEGER NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+                author_id INTEGER NOT NULL REFERENCES users(id), note TEXT NOT NULL, created_at TEXT NOT NULL
+            );
         """)
+        user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+        if "status" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
         columns = {row[1] for row in conn.execute("PRAGMA table_info(reports)")}
         additions = {
             "business": "TEXT NOT NULL DEFAULT ''", "incident_date": "TEXT NOT NULL DEFAULT ''",
@@ -313,7 +380,8 @@ def init_db():
             "moderated_at": "TEXT NOT NULL DEFAULT ''", "moderation_note": "TEXT NOT NULL DEFAULT ''"
             , "evidence_analysis": "TEXT NOT NULL DEFAULT '{}'", "public_update": "TEXT NOT NULL DEFAULT ''",
             "domain": "TEXT NOT NULL DEFAULT ''", "public_summary": "TEXT NOT NULL DEFAULT ''",
-            "ai_analysis": "TEXT NOT NULL DEFAULT '{}'", "ai_consent": "INTEGER NOT NULL DEFAULT 0"
+            "ai_analysis": "TEXT NOT NULL DEFAULT '{}'", "ai_consent": "INTEGER NOT NULL DEFAULT 0",
+            "assigned_to": "INTEGER REFERENCES users(id)", "priority": "TEXT NOT NULL DEFAULT 'normal'"
         }
         for name, spec in additions.items():
             if name not in columns:
@@ -339,6 +407,14 @@ def init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS attachments_report_created ON report_attachments(report_id,created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS ai_runs_resource ON ai_runs(resource_type,resource_id,created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS ai_training_partition ON ai_training_labels(partition_name,category,report_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS admin_audit_created ON admin_audit_events(created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS threat_records_domain_status ON threat_records(domain,status)")
+        conn.execute("CREATE INDEX IF NOT EXISTS incidents_status_updated ON incidents(status,updated_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS incident_events_incident_created ON incident_events(incident_id,created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS admin_report_notes_report_created ON admin_report_notes(report_id,created_at)")
+        for key, value in {"request_timeout_seconds": str(TIMEOUT), "max_redirects": str(MAX_REDIRECTS),
+                           "phishing_heuristics_enabled": "true", "ai_content_analysis_enabled": "true"}.items():
+            conn.execute("INSERT OR IGNORE INTO scanner_settings(setting_key,setting_value) VALUES(?,?)", (key, value))
         conn.execute("UPDATE reports SET status='More Information Required' WHERE status='Evidence Requested'")
         conn.execute("UPDATE reports SET status='Partially Supported' WHERE status='Partially Verified'")
         conn.execute("UPDATE reports SET status='Verified Findings' WHERE status='Verified'")
@@ -495,6 +571,7 @@ def normalize_url(raw):
 
 
 def scan_site(raw, user_id=None):
+    config = scanner_configuration()
     url = normalize_url(raw)
     initial = urllib.parse.urlsplit(url)
     domain = initial.hostname.encode("idna").decode("ascii").lower()
@@ -519,12 +596,12 @@ def scan_site(raw, user_id=None):
 
     request = urllib.request.Request(url, headers={"User-Agent": "TrustShield-Research/1.1 (+website safety scan)", "Accept": "text/html,application/xhtml+xml"})
     status_code, headers, body, final_url, fetch_error, tls_error = None, {}, b"", url, None, None
-    redirect_handler = SafeRedirect()
+    redirect_handler = SafeRedirect(config["max_redirects"])
     redirect_handler.resolution_cache[initial.hostname.lower()] = addresses
     tls_handler = PinnedHTTPSHandler(ssl.create_default_context(), redirect_handler.resolution_cache)
     try:
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), redirect_handler, PinnedHTTPHandler(redirect_handler.resolution_cache), tls_handler)
-        with opener.open(request, timeout=TIMEOUT) as response:
+        with opener.open(request, timeout=config["request_timeout_seconds"]) as response:
             final_url = response.geturl()
             status_code, headers = response.status, response.headers
             body = response.read(MAX_BODY)
@@ -709,11 +786,14 @@ def scan_site(raw, user_id=None):
         contribution=SCORING_WEIGHTS["url.impersonation_pattern"] if matched else 0)
 
     phishing_analysis = analyze_phishing(url, page_text=visible_text, password_input_count=password_input_count,
-                                         password_form_actions=password_form_actions, redirects=redirect_handler.hops)
+                                         password_form_actions=password_form_actions, redirects=redirect_handler.hops) if config["phishing_heuristics_enabled"] else {
+                                             "status": "disabled", "findings": [], "assessment": "Phishing heuristics were disabled by the current scanner configuration.",
+                                             "threat_intelligence": {"available": False, "message": "No external threat feed was queried."}}
     for signal in phishing_analysis["findings"]:
         add(signal["id"], signal["name"], "Phishing and impersonation", WARNING,
             signal["explanation"] + " " + signal["recommended_action"], source=signal["source"], evidence=signal["evidence"])
-    ai_analysis = analyze_website_content(final_display, title, visible_text)
+    ai_analysis = analyze_website_content(final_display, title, visible_text) if config["ai_content_analysis_enabled"] else {
+        "status": "disabled", "provider": "none", "findings": [], "message": "Optional AI page analysis is disabled by the current scanner configuration."}
 
     assessment = score_findings(checks, sufficient_data=status_code is not None)
     score, label, summary = assessment["score"], assessment["label"], assessment["summary"]
@@ -725,11 +805,14 @@ def scan_site(raw, user_id=None):
         scan_id = cur.lastrowid
         persist_ai_results(conn, "scan", scan_id, ai_analysis)
         conn.execute("UPDATE scans SET ai_analysis=? WHERE id=?", (json.dumps(ai_analysis), scan_id))
+        threat_row = conn.execute("SELECT id,domain,category,verification_note,first_seen,last_seen,updated_at FROM threat_records WHERE status='verified' AND (?=domain OR ? LIKE '%.'||domain) ORDER BY length(domain) DESC LIMIT 1", (domain, domain)).fetchone()
+        threat_match = dict(threat_row) if threat_row else None
     return {"id": scan_id, "url": url, "domain": domain, "title": title, "score": score,
             "label": label, "summary": summary, "checks": checks, "findings": checks,
             "calculation": assessment["calculation"], "scanner_version": SCANNER_VERSION,
             "created_at": created_at, "status_code": status_code, "final_url": final_display,
-            "ai_analysis": ai_analysis, "phishing_analysis": phishing_analysis}
+            "ai_analysis": ai_analysis, "phishing_analysis": phishing_analysis,
+            "verified_threat_match": threat_match}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -759,7 +842,7 @@ class Handler(BaseHTTPRequestHandler):
         if not token:
             return None
         with db() as conn:
-            row = conn.execute("SELECT u.id,u.name,u.email,u.role FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?", (token_digest(token), int(time.time()))).fetchone()
+            row = conn.execute("SELECT u.id,u.name,u.email,u.role,u.status FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.status='active'", (token_digest(token), int(time.time()))).fetchone()
             return dict(row) if row else None
 
     def guest_token_hashes(self):
@@ -807,9 +890,403 @@ class Handler(BaseHTTPRequestHandler):
         secure = "; Secure" if os.environ.get("TRUSTSHIELD_SECURE_COOKIE", "").lower() in {"1", "true", "yes"} else ""
         return f"trustshield_session={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={max_age}{secure}"
 
+    def handle_admin_get(self, path, query):
+        routes = {
+            "/api/admin/overview", "/api/admin/users", "/api/admin/scans", "/api/admin/reports",
+            "/api/admin/threats", "/api/admin/scanner/settings", "/api/admin/incidents",
+            "/api/admin/audit", "/api/admin/ai",
+        }
+        user_match = re.fullmatch(r"/api/admin/users/(\d+)", path)
+        report_match = re.fullmatch(r"/api/admin/reports/(\d+)", path)
+        incident_match = re.fullmatch(r"/api/admin/incidents/(\d+)", path)
+        if path not in routes and not (user_match or report_match or incident_match):
+            return False
+        user = self.require_user("admin")
+        if not user:
+            return True
+        q = (query.get("q", [""])[0] or "").strip()[:120]
+        status = (query.get("status", [""])[0] or "").strip()[:40]
+        try: page = max(1, min(100_000, int((query.get("page", ["1"])[0] or "1"))))
+        except (ValueError, TypeError): page = 1
+        try: limit = max(1, min(100, int((query.get("limit", ["25"])[0] or "25"))))
+        except (ValueError, TypeError): limit = 25
+        offset = (page - 1) * limit
+        with db() as conn:
+            if path == "/api/admin/overview":
+                try: days = max(7, min(90, int((query.get("days", ["30"])[0] or "30"))))
+                except (ValueError, TypeError): days = 30
+                today = datetime.now(timezone.utc).date().isoformat()
+                metrics = conn.execute("""
+                    SELECT (SELECT COUNT(*) FROM users) total_users,
+                      (SELECT COUNT(*) FROM users WHERE status='active') active_users,
+                      (SELECT COUNT(*) FROM scans) total_scans,
+                      (SELECT COUNT(*) FROM scans WHERE substr(created_at,1,10)=?) scans_today,
+                      (SELECT COUNT(DISTINCT domain) FROM scans WHERE label='Moderate Risk') suspicious_websites,
+                      (SELECT COUNT(DISTINCT domain) FROM scans WHERE label='High Risk') high_risk_websites,
+                      (SELECT COUNT(*) FROM scans WHERE label='Critical Risk') critical_risk_scans,
+                      (SELECT COUNT(*) FROM reports WHERE status IN ('Submitted','Under Review','More Information Required','Disputed')) pending_complaints,
+                      (SELECT COUNT(*) FROM threat_records WHERE status='verified') verified_threats,
+                      (SELECT COUNT(*) FROM scans WHERE label='Insufficient Data') failed_scans,
+                      (SELECT COUNT(*) FROM incidents WHERE status NOT IN ('resolved','closed')) open_incidents
+                """, (today,)).fetchone()
+                chart_rows = conn.execute("SELECT substr(created_at,1,10) day,COUNT(*) count FROM scans WHERE created_at>=datetime('now',?) GROUP BY day ORDER BY day", (f"-{days} days",)).fetchall()
+                counts = {row["day"]: row["count"] for row in chart_rows}
+                chart = [{"date": (datetime.now(timezone.utc).date() - timedelta(days=days - index - 1)).isoformat(), "count": 0} for index in range(days)]
+                for item in chart:
+                    item["count"] = counts.get(item["date"], 0)
+                activity = [dict(row) for row in conn.execute("""
+                    SELECT * FROM (
+                      SELECT event.id,event.actor_id,event.action,event.resource_type,event.resource_id,event.previous_json,event.new_json,event.metadata_json,event.created_at,users.name actor_name
+                      FROM admin_audit_events event LEFT JOIN users ON users.id=event.actor_id
+                      UNION ALL
+                      SELECT event.id,event.moderator_id,'report.status_changed','report',CAST(event.report_id AS TEXT),
+                        json_object('status',event.old_status),json_object('status',event.new_status),json_object('note',event.note),event.created_at,users.name
+                      FROM moderation_events event LEFT JOIN users ON users.id=event.moderator_id
+                    ) ORDER BY created_at DESC LIMIT 12
+                """)]
+                try:
+                    ai_state = provider_status()
+                    health = {"api": "available", "database": "available", "ai_provider": ai_state.get("status", "not configured")}
+                except Exception:
+                    health = {"api": "available", "database": "available", "ai_provider": "status unavailable"}
+                return self.send_json({"metrics": dict(metrics), "scans_by_day": chart, "activity": activity, "health": health}) or True
+            if path == "/api/admin/users":
+                where, args = [], []
+                if q:
+                    where.append("(u.name LIKE ? OR u.email LIKE ? OR CAST(u.id AS TEXT)=?)")
+                    args.extend([f"%{q}%", f"%{q}%", q.lstrip("#")])
+                if status in {"active", "suspended"}:
+                    where.append("u.status=?"); args.append(status)
+                role = (query.get("role", [""])[0] or "").strip()
+                if role in {"user", "admin"}:
+                    where.append("u.role=?"); args.append(role)
+                condition = " WHERE " + " AND ".join(where) if where else ""
+                total = conn.execute("SELECT COUNT(*) FROM users u" + condition, args).fetchone()[0]
+                rows = [dict(row) for row in conn.execute("""
+                    SELECT u.id,u.name,u.email,u.role,u.status,u.created_at,
+                    (SELECT COUNT(*) FROM scans s WHERE s.user_id=u.id) scan_count,
+                    (SELECT COUNT(*) FROM reports r WHERE r.user_id=u.id) report_count
+                    FROM users u
+                """ + condition + " ORDER BY u.id DESC LIMIT ? OFFSET ?", (*args, limit, offset))]
+                return self.send_json({"users": rows, "total": total, "page": page, "limit": limit}) or True
+            if user_match:
+                target_id = int(user_match.group(1))
+                target = conn.execute("SELECT id,name,email,role,status,created_at FROM users WHERE id=?", (target_id,)).fetchone()
+                if not target:
+                    self.send_json({"error": "User not found."}, 404); return True
+                scans = [dict(row) for row in conn.execute("SELECT id,url,domain,score,label,created_at FROM scans WHERE user_id=? ORDER BY id DESC LIMIT 50", (target_id,))]
+                reports = [dict(row) for row in conn.execute("SELECT id,url,domain,category,status,created_at FROM reports WHERE user_id=? ORDER BY id DESC LIMIT 50", (target_id,))]
+                return self.send_json({"user": dict(target), "scans": scans, "reports": reports}) or True
+            if path == "/api/admin/scans":
+                where, args = [], []
+                if q:
+                    where.append("(s.domain LIKE ? OR s.url LIKE ? OR u.email LIKE ? OR CAST(s.id AS TEXT)=?)")
+                    args.extend([f"%{q}%", f"%{q}%", f"%{q}%", q.lstrip("#")])
+                if status:
+                    where.append("s.label=?"); args.append(status)
+                condition = " WHERE " + " AND ".join(where) if where else ""
+                total = conn.execute("SELECT COUNT(*) FROM scans s LEFT JOIN users u ON u.id=s.user_id" + condition, args).fetchone()[0]
+                rows = [dict(row) for row in conn.execute("SELECT s.id,s.url,s.domain,s.score,s.label,s.summary,s.checks,s.created_at,s.scanner_version,u.name user_name,u.email user_email FROM scans s LEFT JOIN users u ON u.id=s.user_id" + condition + " ORDER BY s.id DESC LIMIT ? OFFSET ?", (*args, limit, offset))]
+                for row in rows:
+                    try: row["checks"] = json.loads(row["checks"] or "[]")
+                    except json.JSONDecodeError: row["checks"] = []
+                return self.send_json({"scans": rows, "total": total, "page": page, "limit": limit}) or True
+            if path == "/api/admin/reports":
+                where, args = [], []
+                if q:
+                    where.append("(r.url LIKE ? OR r.domain LIKE ? OR r.business LIKE ? OR r.category LIKE ? OR r.details LIKE ? OR CAST(r.id AS TEXT)=?)")
+                    args.extend([f"%{q}%"] * 5 + [q.lstrip("#")])
+                if status in REPORT_STATUSES:
+                    where.append("r.status=?"); args.append(status)
+                priority = (query.get("priority", [""])[0] or "").strip()
+                if priority in {"low", "normal", "high", "urgent"}:
+                    where.append("r.priority=?"); args.append(priority)
+                condition = " WHERE " + " AND ".join(where) if where else ""
+                total = conn.execute("SELECT COUNT(*) FROM reports r" + condition, args).fetchone()[0]
+                rows = [dict(row) for row in conn.execute("""
+                    SELECT r.id,r.url,r.domain,r.business,r.category,r.status,r.priority,r.assigned_to,r.created_at,r.public_summary,
+                      u.name assigned_name,(CASE WHEN r.evidence_name<>'' THEN 1 ELSE 0 END + (SELECT COUNT(*) FROM report_attachments a WHERE a.report_id=r.id) + (SELECT COUNT(*) FROM report_followups f WHERE f.report_id=r.id AND f.evidence_path<>'')) evidence_count
+                    FROM reports r LEFT JOIN users u ON u.id=r.assigned_to
+                """ + condition + " ORDER BY CASE r.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, r.created_at DESC LIMIT ? OFFSET ?", (*args, limit, offset))]
+                return self.send_json({"reports": rows, "total": total, "page": page, "limit": limit}) or True
+            if report_match:
+                report_id = int(report_match.group(1))
+                report = conn.execute("SELECT r.*,u.name assigned_name FROM reports r LEFT JOIN users u ON u.id=r.assigned_to WHERE r.id=?", (report_id,)).fetchone()
+                if not report:
+                    self.send_json({"error": "Report not found."}, 404); return True
+                result = dict(report)
+                result["notes"] = [dict(row) for row in conn.execute("SELECT n.id,n.note,n.created_at,u.name author_name FROM admin_report_notes n JOIN users u ON u.id=n.author_id WHERE n.report_id=? ORDER BY n.id DESC", (report_id,))]
+                result["timeline"] = [dict(row) for row in conn.execute("SELECT e.id,e.old_status,e.new_status,e.note,e.created_at,u.name moderator FROM moderation_events e LEFT JOIN users u ON u.id=e.moderator_id WHERE e.report_id=? ORDER BY e.id", (report_id,))]
+                result["attachments"] = [dict(row) for row in conn.execute("SELECT id,evidence_name,mime_type,size_bytes,created_at FROM report_attachments WHERE report_id=? ORDER BY id", (report_id,))]
+                return self.send_json(result) or True
+            if path == "/api/admin/threats":
+                where, args = [], []
+                if q: where.append("(t.domain LIKE ? OR t.category LIKE ? OR r.url LIKE ?)"); args.extend([f"%{q}%"] * 3)
+                if status in {"verified", "false_positive"}: where.append("t.status=?"); args.append(status)
+                condition = " WHERE " + " AND ".join(where) if where else ""
+                total = conn.execute("SELECT COUNT(*) FROM threat_records t JOIN reports r ON r.id=t.source_report_id" + condition, args).fetchone()[0]
+                rows = [dict(row) for row in conn.execute("SELECT t.*,r.category report_category,r.status report_status,u.name reviewer_name,(SELECT COUNT(*) FROM reports related WHERE related.domain=t.domain) related_report_count FROM threat_records t JOIN reports r ON r.id=t.source_report_id LEFT JOIN users u ON u.id=t.reviewer_id" + condition + " ORDER BY t.updated_at DESC LIMIT ? OFFSET ?", (*args, limit, offset))]
+                return self.send_json({"threats": rows, "total": total, "page": page, "limit": limit}) or True
+            if path == "/api/admin/scanner/settings":
+                return self.send_json({"settings": scanner_configuration(), "fixed_checks": ["DNS public-address validation", "TLS certificate validation", "HTTP security headers", "redirect destination validation"], "unavailable": ["rate limiting (deployment-level configuration)", "WHOIS/registration age", "external threat feeds"]}) or True
+            if path == "/api/admin/incidents":
+                where, args = [], []
+                if q: where.append("(i.title LIKE ? OR CAST(i.id AS TEXT)=?)"); args.extend([f"%{q}%", q.lstrip("#")])
+                if status in {"new", "investigating", "contained", "resolved", "closed"}: where.append("i.status=?"); args.append(status)
+                severity = (query.get("severity", [""])[0] or "").strip()
+                if severity in {"low", "medium", "high", "critical"}: where.append("i.severity=?"); args.append(severity)
+                condition = " WHERE " + " AND ".join(where) if where else ""
+                total = conn.execute("SELECT COUNT(*) FROM incidents i" + condition, args).fetchone()[0]
+                rows = [dict(row) for row in conn.execute("SELECT i.*,assignee.name assigned_name,(SELECT COUNT(*) FROM incident_reports ir WHERE ir.incident_id=i.id) report_count FROM incidents i LEFT JOIN users assignee ON assignee.id=i.assigned_to" + condition + " ORDER BY i.updated_at DESC LIMIT ? OFFSET ?", (*args, limit, offset))]
+                return self.send_json({"incidents": rows, "total": total, "page": page, "limit": limit}) or True
+            if incident_match:
+                incident_id = int(incident_match.group(1))
+                incident = conn.execute("SELECT i.*,assignee.name assigned_name,creator.name creator_name FROM incidents i LEFT JOIN users assignee ON assignee.id=i.assigned_to JOIN users creator ON creator.id=i.created_by WHERE i.id=?", (incident_id,)).fetchone()
+                if not incident:
+                    self.send_json({"error": "Incident not found."}, 404); return True
+                result = dict(incident)
+                result["reports"] = [dict(row) for row in conn.execute("SELECT r.id,r.url,r.domain,r.category,r.status FROM incident_reports ir JOIN reports r ON r.id=ir.report_id WHERE ir.incident_id=?", (incident_id,))]
+                result["events"] = [dict(row) for row in conn.execute("SELECT e.id,e.event_type,e.previous_json,e.new_json,e.note,e.created_at,u.name actor_name FROM incident_events e LEFT JOIN users u ON u.id=e.actor_id WHERE e.incident_id=? ORDER BY e.id DESC", (incident_id,))]
+                return self.send_json(result) or True
+            if path == "/api/admin/audit":
+                audit_union = """
+                      SELECT a.id,'admin_action' event_type,a.actor_id,u.name actor_name,a.action,a.resource_type,a.resource_id,a.previous_json,a.new_json,a.metadata_json,a.created_at
+                      FROM admin_audit_events a LEFT JOIN users u ON u.id=a.actor_id
+                      UNION ALL
+                      SELECT e.id,'report_moderation',e.moderator_id,u.name,'report.status_changed','report',CAST(e.report_id AS TEXT),json_object('status',e.old_status),json_object('status',e.new_status),json_object('note',e.note),e.created_at
+                      FROM moderation_events e LEFT JOIN users u ON u.id=e.moderator_id
+                      UNION ALL
+                      SELECT e.id,'incident_event',e.actor_id,u.name,e.event_type,'incident',CAST(e.incident_id AS TEXT),e.previous_json,e.new_json,json_object('note',e.note),e.created_at
+                      FROM incident_events e LEFT JOIN users u ON u.id=e.actor_id
+                      UNION ALL
+                      SELECT f.id,'ai_feedback',f.moderator_id,u.name,'ai.finding_feedback','ai_run',CAST(f.run_id AS TEXT),'{}',json_object('finding_key',f.finding_key,'decision',f.decision),json_object('note',f.note),f.created_at
+                      FROM ai_feedback f LEFT JOIN users u ON u.id=f.moderator_id
+                """
+                filter_clause = "(?='' OR action LIKE ? OR resource_type LIKE ? OR resource_id LIKE ? OR actor_name LIKE ? OR event_type LIKE ?)"
+                filter_args = (q, f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%")
+                total = conn.execute(f"SELECT COUNT(*) FROM ({audit_union}) WHERE {filter_clause}", filter_args).fetchone()[0]
+                rows = [dict(row) for row in conn.execute(f"SELECT * FROM ({audit_union}) WHERE {filter_clause} ORDER BY created_at DESC LIMIT ? OFFSET ?", (*filter_args, limit, offset))]
+                return self.send_json({"events": rows, "page": page, "limit": limit, "total": total}) or True
+            if path == "/api/admin/ai":
+                counts = dict(conn.execute("SELECT COUNT(*) total_runs,COUNT(DISTINCT provider) providers,MAX(created_at) latest_run FROM ai_runs").fetchone())
+                recent = [dict(row) for row in conn.execute("SELECT id,resource_type,resource_id,domain,analysis_type,provider,model,model_version,status,user_consented,created_at FROM ai_runs ORDER BY id DESC LIMIT 30")]
+                feedback = conn.execute("SELECT COUNT(*) total, SUM(decision='accepted') accepted, SUM(decision='rejected') rejected FROM ai_feedback").fetchone()
+                labels = conn.execute("SELECT COUNT(*) total,COUNT(DISTINCT report_id) reports FROM ai_training_labels").fetchone()
+                return self.send_json({"provider": provider_status(), "counts": counts, "feedback": dict(feedback), "human_labels": dict(labels), "recent_runs": recent}) or True
+        return False
+
+    def handle_admin_post(self, path, payload):
+        note_match = re.fullmatch(r"/api/admin/reports/(\d+)/notes", path)
+        incident_event_match = re.fullmatch(r"/api/admin/incidents/(\d+)/events", path)
+        if path not in {"/api/admin/threats", "/api/admin/incidents"} and not (note_match or incident_event_match):
+            return False
+        user = self.require_user("admin")
+        if not user:
+            return True
+        with db() as conn:
+            if note_match:
+                report_id = int(note_match.group(1))
+                note = str(payload.get("note", "")).strip()[:2000]
+                if len(note) < 8:
+                    self.send_json({"error": "Add an internal note of at least 8 characters."}, 400); return True
+                if not conn.execute("SELECT id FROM reports WHERE id=?", (report_id,)).fetchone():
+                    self.send_json({"error": "Report not found."}, 404); return True
+                cursor = conn.execute("INSERT INTO admin_report_notes(report_id,author_id,note,created_at) VALUES(?,?,?,?)", (report_id, user["id"], note, now()))
+                audit_admin_action(conn, user["id"], "report.internal_note_added", "report", report_id, new={"note_id": cursor.lastrowid})
+                self.send_json({"ok": True, "id": cursor.lastrowid}, 201); return True
+            if path == "/api/admin/threats":
+                try: report_id = int(payload.get("report_id", 0))
+                except (TypeError, ValueError): report_id = 0
+                note = str(payload.get("verification_note", "")).strip()[:1200]
+                if not report_id or len(note) < 20:
+                    self.send_json({"error": "Select a report and record a verification note of at least 20 characters."}, 400); return True
+                report = conn.execute("SELECT id,url,domain,category,status FROM reports WHERE id=?", (report_id,)).fetchone()
+                if not report:
+                    self.send_json({"error": "Report not found."}, 404); return True
+                if report["status"] != "Verified Findings":
+                    self.send_json({"error": "Only a report with the human-reviewed status Verified Findings can be added to threat intelligence."}, 409); return True
+                domain = report["domain"] or report_domain(report["url"])
+                stamp = now()
+                existing = conn.execute("SELECT * FROM threat_records WHERE source_report_id=?", (report_id,)).fetchone()
+                if existing:
+                    previous = {"status": existing["status"], "verification_note": existing["verification_note"]}
+                    conn.execute("UPDATE threat_records SET status='verified',reviewer_id=?,verification_note=?,last_seen=?,updated_at=? WHERE id=?", (user["id"], note, stamp, stamp, existing["id"]))
+                    threat_id = existing["id"]
+                    audit_admin_action(conn, user["id"], "threat.reverified", "threat", threat_id, previous=previous, new={"status": "verified", "verification_note": note, "source_report_id": report_id})
+                else:
+                    cursor = conn.execute("INSERT INTO threat_records(domain,category,status,source_report_id,created_by,reviewer_id,verification_note,first_seen,last_seen,created_at,updated_at) VALUES(?,?,'verified',?,?,?,?,?,?,?,?)", (domain, report["category"], report_id, user["id"], user["id"], note, stamp, stamp, stamp, stamp))
+                    threat_id = cursor.lastrowid
+                    audit_admin_action(conn, user["id"], "threat.verified", "threat", threat_id, new={"domain": domain, "category": report["category"], "source_report_id": report_id, "status": "verified"})
+                self.send_json({"ok": True, "id": threat_id, "domain": domain}, 201); return True
+            if path == "/api/admin/incidents":
+                title = str(payload.get("title", "")).strip()[:160]
+                severity = str(payload.get("severity", "medium"))
+                resolution_note = str(payload.get("note", "")).strip()[:2000]
+                try: assigned_to = int(payload["assigned_to"]) if payload.get("assigned_to") not in {None, ""} else None
+                except (TypeError, ValueError): assigned_to = -1
+                report_ids = payload.get("report_ids", [])
+                if not isinstance(report_ids, list) or len(report_ids) > 20:
+                    self.send_json({"error": "Link no more than 20 reports."}, 400); return True
+                try: report_ids = sorted(set(int(item) for item in report_ids))
+                except (TypeError, ValueError):
+                    self.send_json({"error": "Report references must be valid IDs."}, 400); return True
+                if len(title) < 5 or severity not in {"low", "medium", "high", "critical"}:
+                    self.send_json({"error": "Enter an incident title and choose a supported severity."}, 400); return True
+                if assigned_to is not None and not conn.execute("SELECT id FROM users WHERE id=? AND role='admin' AND status='active'", (assigned_to,)).fetchone():
+                    self.send_json({"error": "Assign the incident to an active administrator."}, 400); return True
+                if report_ids:
+                    marks = ",".join("?" for _ in report_ids)
+                    found = conn.execute(f"SELECT COUNT(*) FROM reports WHERE id IN ({marks})", report_ids).fetchone()[0]
+                    if found != len(report_ids):
+                        self.send_json({"error": "One or more linked reports do not exist."}, 400); return True
+                stamp = now()
+                cursor = conn.execute("INSERT INTO incidents(title,severity,status,assigned_to,created_by,resolution_note,created_at,updated_at) VALUES(?,?,'new',?,?,?, ?,?)", (title, severity, assigned_to, user["id"], resolution_note, stamp, stamp))
+                incident_id = cursor.lastrowid
+                conn.executemany("INSERT INTO incident_reports(incident_id,report_id) VALUES(?,?)", [(incident_id, report_id) for report_id in report_ids])
+                conn.execute("INSERT INTO incident_events(incident_id,actor_id,event_type,new_json,note,created_at) VALUES(?,?,'incident.created',?,?,?)", (incident_id, user["id"], json.dumps({"title": title, "severity": severity, "assigned_to": assigned_to, "report_ids": report_ids}), resolution_note, stamp))
+                audit_admin_action(conn, user["id"], "incident.created", "incident", incident_id, new={"title": title, "severity": severity, "status": "new", "assigned_to": assigned_to, "report_ids": report_ids})
+                self.send_json({"ok": True, "id": incident_id}, 201); return True
+            incident_id = int(incident_event_match.group(1))
+            note = str(payload.get("note", "")).strip()[:2000]
+            if len(note) < 3 or not conn.execute("SELECT id FROM incidents WHERE id=?", (incident_id,)).fetchone():
+                self.send_json({"error": "Incident not found or note is too short."}, 400); return True
+            cursor = conn.execute("INSERT INTO incident_events(incident_id,actor_id,event_type,note,created_at) VALUES(?,?,'note',?,?)", (incident_id, user["id"], note, now()))
+            audit_admin_action(conn, user["id"], "incident.note_added", "incident", incident_id, new={"event_id": cursor.lastrowid})
+            self.send_json({"ok": True, "id": cursor.lastrowid}, 201); return True
+
+    def handle_admin_patch(self, path, payload):
+        user_match = re.fullmatch(r"/api/admin/users/(\d+)/(status|role)", path)
+        report_match = re.fullmatch(r"/api/admin/reports/(\d+)", path)
+        threat_match = re.fullmatch(r"/api/admin/threats/(\d+)/status", path)
+        incident_match = re.fullmatch(r"/api/admin/incidents/(\d+)", path)
+        if path != "/api/admin/scanner/settings" and not (user_match or report_match or threat_match or incident_match):
+            return False
+        user = self.require_user("admin")
+        if not user:
+            return True
+        with db() as conn:
+            if user_match:
+                target_id, field = int(user_match.group(1)), user_match.group(2)
+                target = conn.execute("SELECT id,name,email,role,status FROM users WHERE id=?", (target_id,)).fetchone()
+                value = str(payload.get(field, ""))
+                if not target:
+                    self.send_json({"error": "User not found."}, 404); return True
+                if target_id == user["id"]:
+                    self.send_json({"error": "You cannot change your own account status or role."}, 409); return True
+                if field == "status":
+                    if value not in {"active", "suspended"}:
+                        self.send_json({"error": "Choose active or suspended."}, 400); return True
+                    if target["role"] == "admin" and target["status"] == "active" and value == "suspended":
+                        active_admins = conn.execute("SELECT COUNT(*) FROM users WHERE role='admin' AND status='active'").fetchone()[0]
+                        if active_admins <= 1:
+                            self.send_json({"error": "The last active administrator cannot be suspended."}, 409); return True
+                    conn.execute("UPDATE users SET status=? WHERE id=?", (value, target_id))
+                    if value == "suspended": conn.execute("DELETE FROM sessions WHERE user_id=?", (target_id,))
+                else:
+                    if value not in {"user", "admin"}:
+                        self.send_json({"error": "Choose user or admin."}, 400); return True
+                    if target["role"] == "admin" and value == "user" and target["status"] == "active":
+                        active_admins = conn.execute("SELECT COUNT(*) FROM users WHERE role='admin' AND status='active'").fetchone()[0]
+                        if active_admins <= 1:
+                            self.send_json({"error": "The last active administrator cannot be demoted."}, 409); return True
+                    conn.execute("UPDATE users SET role=? WHERE id=?", (value, target_id))
+                previous_value = target[field]
+                audit_admin_action(conn, user["id"], f"user.{field}_changed", "user", target_id, previous={field: previous_value}, new={field: value})
+                self.send_json({"ok": True, "id": target_id, field: value}, 200); return True
+            if report_match:
+                report_id = int(report_match.group(1))
+                report = conn.execute("SELECT assigned_to,priority,status FROM reports WHERE id=?", (report_id,)).fetchone()
+                if not report:
+                    self.send_json({"error": "Report not found."}, 404); return True
+                old = dict(report); updates = {}
+                if "assigned_to" in payload:
+                    try: assigned = int(payload["assigned_to"]) if payload["assigned_to"] not in {None, ""} else None
+                    except (TypeError, ValueError): assigned = -1
+                    if assigned is not None and not conn.execute("SELECT id FROM users WHERE id=? AND role='admin' AND status='active'", (assigned,)).fetchone():
+                        self.send_json({"error": "Assign the report to an active administrator or leave it unassigned."}, 400); return True
+                    updates["assigned_to"] = assigned
+                if "priority" in payload:
+                    priority = str(payload["priority"])
+                    if priority not in {"low", "normal", "high", "urgent"}:
+                        self.send_json({"error": "Choose a supported priority."}, 400); return True
+                    updates["priority"] = priority
+                if not updates:
+                    self.send_json({"error": "No supported report fields were provided."}, 400); return True
+                conn.execute("UPDATE reports SET " + ",".join(f"{key}=?" for key in updates) + " WHERE id=?", (*updates.values(), report_id))
+                audit_admin_action(conn, user["id"], "report.assignment_or_priority_changed", "report", report_id, previous=old, new={**old, **updates})
+                self.send_json({"ok": True, "report_id": report_id, **updates}); return True
+            if threat_match:
+                threat_id = int(threat_match.group(1)); status = str(payload.get("status", "")); note = str(payload.get("note", "")).strip()[:1200]
+                if status not in {"verified", "false_positive"} or len(note) < 10:
+                    self.send_json({"error": "Choose verified or false positive and record a review note of at least 10 characters."}, 400); return True
+                threat = conn.execute("SELECT * FROM threat_records WHERE id=?", (threat_id,)).fetchone()
+                if not threat:
+                    self.send_json({"error": "Threat record not found."}, 404); return True
+                stamp = now(); previous = {"status": threat["status"], "verification_note": threat["verification_note"]}
+                conn.execute("UPDATE threat_records SET status=?,reviewer_id=?,verification_note=?,last_seen=?,updated_at=? WHERE id=?", (status, user["id"], note, stamp, stamp, threat_id))
+                audit_admin_action(conn, user["id"], "threat.reviewed", "threat", threat_id, previous=previous, new={"status": status, "verification_note": note})
+                self.send_json({"ok": True, "id": threat_id, "status": status}); return True
+            if path == "/api/admin/scanner/settings":
+                allowed = {"request_timeout_seconds", "max_redirects", "phishing_heuristics_enabled", "ai_content_analysis_enabled"}
+                if not payload or set(payload) - allowed:
+                    self.send_json({"error": "Only runtime-supported scanner settings can be changed."}, 400); return True
+                current = scanner_configuration(); changed = {}
+                for key, raw in payload.items():
+                    if key == "request_timeout_seconds":
+                        try: value = int(raw)
+                        except (TypeError, ValueError): value = -1
+                        if not 3 <= value <= 20:
+                            self.send_json({"error": "Request timeout must be between 3 and 20 seconds."}, 400); return True
+                    elif key == "max_redirects":
+                        try: value = int(raw)
+                        except (TypeError, ValueError): value = -1
+                        if not 0 <= value <= 10:
+                            self.send_json({"error": "Maximum redirects must be between 0 and 10."}, 400); return True
+                    else:
+                        if not isinstance(raw, bool):
+                            self.send_json({"error": f"{key} must be a boolean."}, 400); return True
+                        value = raw
+                    if current[key] != value: changed[key] = value
+                stamp = now()
+                for key, value in changed.items():
+                    conn.execute("INSERT INTO scanner_settings(setting_key,setting_value,updated_by,updated_at) VALUES(?,?,?,?) ON CONFLICT(setting_key) DO UPDATE SET setting_value=excluded.setting_value,updated_by=excluded.updated_by,updated_at=excluded.updated_at", (key, str(value).lower() if isinstance(value, bool) else str(value), user["id"], stamp))
+                if changed: audit_admin_action(conn, user["id"], "scanner.settings_changed", "scanner", "runtime", previous=current, new={**current, **changed})
+                self.send_json({"ok": True, "settings": {**current, **changed}}); return True
+            incident_id = int(incident_match.group(1))
+            incident = conn.execute("SELECT * FROM incidents WHERE id=?", (incident_id,)).fetchone()
+            if not incident:
+                self.send_json({"error": "Incident not found."}, 404); return True
+            old = dict(incident); new = dict(old)
+            for key, allowed_values in (("status", {"new", "investigating", "contained", "resolved", "closed"}), ("severity", {"low", "medium", "high", "critical"})):
+                if key in payload:
+                    value = str(payload[key])
+                    if value not in allowed_values:
+                        self.send_json({"error": f"Choose a supported incident {key}."}, 400); return True
+                    new[key] = value
+            if "assigned_to" in payload:
+                try: assigned = int(payload["assigned_to"]) if payload["assigned_to"] not in {None, ""} else None
+                except (TypeError, ValueError): assigned = -1
+                if assigned is not None and not conn.execute("SELECT id FROM users WHERE id=? AND role='admin' AND status='active'", (assigned,)).fetchone():
+                    self.send_json({"error": "Assign the incident to an active administrator or leave it unassigned."}, 400); return True
+                new["assigned_to"] = assigned
+            if "resolution_note" in payload:
+                new["resolution_note"] = str(payload["resolution_note"]).strip()[:2000]
+            if new["status"] in {"resolved", "closed"} and len(new["resolution_note"]) < 8:
+                self.send_json({"error": "Add a resolution note before resolving or closing an incident."}, 400); return True
+            changed = {key: new[key] for key in ("status", "severity", "assigned_to", "resolution_note") if new[key] != old[key]}
+            if not changed:
+                self.send_json({"error": "No incident changes were provided."}, 400); return True
+            new["updated_at"] = now()
+            conn.execute("UPDATE incidents SET status=?,severity=?,assigned_to=?,resolution_note=?,updated_at=? WHERE id=?", (new["status"], new["severity"], new["assigned_to"], new["resolution_note"], new["updated_at"], incident_id))
+            conn.execute("INSERT INTO incident_events(incident_id,actor_id,event_type,previous_json,new_json,note,created_at) VALUES(?,?,'incident.updated',?,?,?,?)", (incident_id, user["id"], json.dumps({key: old[key] for key in changed}), json.dumps(changed), str(payload.get("note", "")).strip()[:1000], new["updated_at"]))
+            audit_admin_action(conn, user["id"], "incident.updated", "incident", incident_id, previous={key: old[key] for key in changed}, new=changed)
+            self.send_json({"ok": True, "id": incident_id, **changed}); return True
+
     def do_GET(self):
         parsed_request = urllib.parse.urlsplit(self.path)
         path = parsed_request.path
+        if path.startswith("/api/admin/") and self.handle_admin_get(path, urllib.parse.parse_qs(parsed_request.query)):
+            return
         if path == "/api/ai/status":
             status = provider_status()
             status["capabilities"] = ["website content analysis", "complaint assistance", "evidence text analysis"]
@@ -925,6 +1402,9 @@ class Handler(BaseHTTPRequestHandler):
                 scan["calculation"] = json.loads(scan.get("calculation") or "{}")
                 scan["ai_analysis"] = json.loads(scan.get("ai_analysis") or "{}")
                 scan["phishing_analysis"] = json.loads(scan.get("phishing_analysis") or "{}")
+                with db() as conn:
+                    threat = conn.execute("SELECT id,domain,category,verification_note,first_seen,last_seen,updated_at FROM threat_records WHERE status='verified' AND (?=domain OR ? LIKE '%.'||domain) ORDER BY length(domain) DESC LIMIT 1", (scan["domain"], scan["domain"])).fetchone()
+                    scan["verified_threat_match"] = dict(threat) if threat else None
                 scan["label"] = scan["label"]
             admin_view = bool(user and user["role"] == "admin")
             for report in reports:
@@ -986,6 +1466,9 @@ class Handler(BaseHTTPRequestHandler):
             result["available_transitions"] = sorted(STATUS_TRANSITIONS.get(result["status"], set())) if is_admin else []
             result["evidence_analysis"] = json.loads(result.get("evidence_analysis") or "{}")
             result["ai_analysis"] = json.loads(result.get("ai_analysis") or "{}")
+            if not is_admin:
+                result.pop("assigned_to", None)
+                result.pop("priority", None)
             result["guidance"] = guidance_for(result["category"])
             result["completed_guidance_actions"] = [item["action_id"] for item in guidance_actions if item["completed"]]
             result["verification_history"] = [{"old_status": item["old_status"], "new_status": item["new_status"], "event_label": "Additional information received" if item["old_status"] == item["new_status"] and item["note"] == "Reporter supplied additional information." else item["new_status"], "created_at": item["created_at"], **({"note": item["note"]} if is_admin else {})} for item in history_rows]
@@ -1098,6 +1581,8 @@ class Handler(BaseHTTPRequestHandler):
         path = urllib.parse.urlsplit(self.path).path
         try:
             payload = self.read_json()
+            if self.handle_admin_post(path, payload):
+                return
             report_ai = re.fullmatch(r"/api/reports/(\d+)/ai-analysis", path)
             if report_ai:
                 if not self.rate_limit("ai_report", 5):
@@ -1151,6 +1636,7 @@ class Handler(BaseHTTPRequestHandler):
                     if run["analysis_type"] != "complaint_intelligence" or not finding_match or int(finding_match.group(1)) >= len(run_result.get("risk_indicators", [])):
                         return self.send_json({"error": "That finding is not part of this complaint analysis."}, 400)
                     cursor = conn.execute("INSERT INTO ai_feedback(run_id,moderator_id,finding_key,decision,note,created_at) VALUES(?,?,?,?,?,?)", (run_id, user["id"], finding_key, decision, note, now()))
+                    audit_admin_action(conn, user["id"], "ai.finding_feedback", "ai_run", run_id, new={"finding_key": finding_key, "decision": decision, "feedback_id": cursor.lastrowid})
                 return self.send_json({"ok": True, "feedback_id": cursor.lastrowid})
             report_outcome = re.fullmatch(r"/api/admin/reports/(\d+)/ai-outcome", path)
             if report_outcome:
@@ -1175,6 +1661,7 @@ class Handler(BaseHTTPRequestHandler):
                         return self.send_json({"error": "A report cannot appear in both training and evaluation partitions."}, 409)
                     latest = conn.execute("SELECT id FROM ai_runs WHERE resource_type='report' AND resource_id=? AND analysis_type='complaint_intelligence' AND status='available' ORDER BY id DESC LIMIT 1", (report_id,)).fetchone()
                     cursor = conn.execute("INSERT INTO ai_training_labels(report_id,run_id,moderator_id,category,label,review_note,partition_name,created_at) VALUES(?,?,?,?,?,?,?,?)", (report_id, latest["id"] if latest else None, user["id"], report["category"], label, review_note, partition, now()))
+                    audit_admin_action(conn, user["id"], "ai.human_outcome_recorded", "report", report_id, new={"label_id": cursor.lastrowid, "label": label, "partition": partition, "run_id": latest["id"] if latest else None})
                 return self.send_json({"ok": True, "label_id": cursor.lastrowid, "partition": partition})
             notify_read = re.fullmatch(r"/api/notifications/(\d+)/read", path)
             if notify_read:
@@ -1393,8 +1880,8 @@ class Handler(BaseHTTPRequestHandler):
                 email = str(payload.get("email", "")).strip().lower()[:254]
                 password = str(payload.get("password", ""))
                 with db() as conn:
-                    row = conn.execute("SELECT id,name,email,role,password_hash FROM users WHERE email=? COLLATE NOCASE", (email,)).fetchone()
-                if not row or not verify_password(password, row["password_hash"]):
+                    row = conn.execute("SELECT id,name,email,role,status,password_hash FROM users WHERE email=? COLLATE NOCASE", (email,)).fetchone()
+                if not row or row["status"] != "active" or not verify_password(password, row["password_hash"]):
                     return self.send_json({"error": "Email or password is incorrect."}, 401)
                 token = self.set_session(row["id"])
                 body = json.dumps({key: row[key] for key in ("id", "name", "email", "role")}).encode()
@@ -1428,6 +1915,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_PATCH(self):
         path = urllib.parse.urlsplit(self.path).path
+        new_admin_route = (path == "/api/admin/scanner/settings" or
+                           re.fullmatch(r"/api/admin/users/\d+/(?:status|role)", path) or
+                           re.fullmatch(r"/api/admin/reports/\d+", path) or
+                           re.fullmatch(r"/api/admin/threats/\d+/status", path) or
+                           re.fullmatch(r"/api/admin/incidents/\d+", path))
+        if new_admin_route:
+            try:
+                if self.handle_admin_patch(path, self.read_json()):
+                    return
+                return self.send_json({"error": "Not found."}, 404)
+            except (ValueError, json.JSONDecodeError) as exc:
+                return self.send_json({"error": str(exc)}, 400)
         flag_match = re.fullmatch(r"/api/admin/reports/(\d+)/flags/(\d+)", path)
         status_match = re.fullmatch(r"/api/admin/reports/(\d+)/status", path)
         if not status_match and not flag_match:
@@ -1450,6 +1949,7 @@ class Handler(BaseHTTPRequestHandler):
                         return self.send_json({"error": "Review request not found."}, 404)
                     conn.execute("UPDATE report_flags SET status=?,reviewed_by=?,reviewed_at=?,review_note=? WHERE id=?", (resolution, user["id"], now(), reason, flag_id))
                     conn.execute("INSERT INTO moderation_events(report_id,moderator_id,old_status,new_status,note,created_at) VALUES(?,?,?,?,?,?)", (report_id, user["id"], report["status"], report["status"], f"{flag['type']} review: {resolution}. {reason}", now()))
+                    audit_admin_action(conn, user["id"], "report.flag_reviewed", "report", report_id, previous={"flag_id": flag_id}, new={"status": resolution, "reason": reason})
                 return self.send_json({"ok": True, "status": resolution})
             report_id = int(status_match.group(1))
             status = str(payload.get("status", ""))
@@ -1469,6 +1969,7 @@ class Handler(BaseHTTPRequestHandler):
                 update_text = public_message if status == "More Information Required" else ""
                 conn.execute("UPDATE reports SET status=?,moderated_by=?,moderated_at=?,moderation_note=?,public_update=? WHERE id=?", (status, user["id"], now(), note, update_text, report_id))
                 conn.execute("INSERT INTO moderation_events(report_id,moderator_id,old_status,new_status,note,created_at) VALUES(?,?,?,?,?,?)", (report_id, user["id"], previous["status"], status, note, now()))
+                audit_admin_action(conn, user["id"], "report.status_changed", "report", report_id, previous={"status": previous["status"]}, new={"status": status}, metadata={"moderation_note_recorded": True})
                 notify_report_owner(conn, previous, "status_changed", f"Report status: {status}", update_text or f"Your report status changed to {status}. Review the report for the latest update.")
             return self.send_json({"ok": True, "status": status, "moderated_at": now(), "public_message": update_text})
         except (ValueError, json.JSONDecodeError) as exc:

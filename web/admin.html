@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0b1220" />
+  <meta name="description" content="TrustShield AI administrator command center." />
+  <title>Admin Console · TrustShield AI</title>
+  <link rel="stylesheet" href="/admin.css" />
+  <script src="/admin.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="/" aria-label="TrustShield AI home"><span class="brand-mark">◆</span><span>TrustShield <i>AI</i></span></a>
+      <div class="workspace"><span class="workspace-avatar">TS</span><span><b>TrustShield</b><small>Security operations</small></span><span class="workspace-chevron">⌄</span></div>
+      <nav class="side-nav" aria-label="Administrator navigation">
+        <span class="nav-caption">WORKSPACE</span>
+        <a href="#admin/overview" data-view="overview"><span>◫</span> Overview</a>
+        <a href="#admin/reports" data-view="reports"><span>▤</span> Complaints <em id="pending-count" hidden></em></a>
+        <a href="#admin/scans" data-view="scans"><span>⌕</span> Website scans</a>
+        <a href="#admin/users" data-view="users"><span>♙</span> User management</a>
+        <span class="nav-caption nav-caption-spaced">INTELLIGENCE</span>
+        <a href="#admin/threats" data-view="threats"><span>⌑</span> Threat records</a>
+        <a href="#admin/incidents" data-view="incidents"><span>⚑</span> Incidents</a>
+        <a href="#admin/scanner" data-view="scanner"><span>⚙</span> Scanner settings</a>
+        <a href="#admin/ai" data-view="ai"><span>✳</span> AI &amp; evaluation</a>
+        <a href="#admin/audit" data-view="audit"><span>▥</span> Audit trail</a>
+      </nav>
+      <div class="sidebar-bottom"><span class="status-light"></span><span>API and database status</span><b id="system-state">Checking</b><a href="/" class="back-home">↗ &nbsp; Public site</a></div>
+    </aside>
+    <div class="sidebar-scrim" id="sidebar-scrim"></div>
+    <main class="main-shell">
+      <header class="topbar">
+        <button class="mobile-nav-button" id="mobile-nav" aria-label="Open navigation" aria-expanded="false">☰</button>
+        <div class="breadcrumbs"><span>TrustShield</span><b>/</b><strong id="page-title">Overview</strong></div>
+        <div class="topbar-actions"><span class="live-status"><i></i> LIVE CONSOLE</span><span class="admin-avatar" id="admin-avatar">A</span><div class="admin-identity"><b id="admin-name">Administrator</b><small id="admin-email"></small></div><button class="icon-button" id="sign-out" title="Sign out" aria-label="Sign out">⇥</button></div>
+      </header>
+      <div id="page-content" class="page-content" aria-live="polite"><div class="loading-state"><span class="spinner"></span><p>Loading administrator workspace…</p></div></div>
+    </main>
+  </div>
+  <dialog id="admin-dialog" class="admin-dialog"></dialog>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <section class="access-wall" id="access-wall" hidden><div class="access-card"><span class="brand-mark">◆</span><p class="eyebrow">TRUSTSHIELD ADMIN</p><h1>Administrator access required</h1><p id="access-message">Sign in with an active administrator account to use this workspace.</p><a class="button primary" href="/#home">Return to sign in</a></div></section>
+</body>
+</html>

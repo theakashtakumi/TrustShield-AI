@@ -5,11 +5,11 @@
 - Move scans into isolated workers with DNS pinning and network egress allow/deny controls.
 - Add verified domain-age and threat-intelligence providers behind independent adapters; expose source/time/availability in every finding.
 - Expand page sampling safely to policy/contact pages while retaining response caps and clear source URLs.
-- Add configurable scoring rules with versioned calculation records and regression tests.
+- Add administrator-owned, versioned scoring configurations and regression tests before allowing live score-weight changes.
 
 ## Next: production evidence and review operations
 
-- Add moderator assignment, queue ownership, review service targets, escalation, and an appeal workflow.
+- Add analyst-specific roles, queue ownership, review service targets, escalation, and an appeal workflow. The MVP supports assignment to active administrators, internal notes, and incident timelines.
 - Add malware scanning, retention/deletion policies, upload quotas, content safety checks, evidence access audit logs, and storage encryption/key rotation.
 - Improve duplicate and coordinated-report detection with better similarity explanations while avoiding counting repeated allegations as independent confirmation.
 - Add user email verification and secure identity recovery; retain in-app notifications as the core auditable record.
@@ -18,7 +18,7 @@
 
 - Add CSRF protection, PostgreSQL migrations, durable distributed rate limiting, backups, and service monitoring.
 - Add saved sites, domain trust profiles with scan timelines, report retention/privacy settings, and business response channels.
-- Add admin user management and role assignment with explicit audit events.
+- Add CSRF protection, production identity recovery, and fine-grained administrator permissions; the MVP currently has audited user/admin roles and account suspension controls.
 
 ## Future analysis integrations
 

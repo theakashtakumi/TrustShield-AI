@@ -92,7 +92,8 @@ function renderWebsiteAi(ai) {
 function renderPhishingPanel(analysis) {
   if (!analysis) return '';
   const findings = (analysis.findings || []).map((item) => `<article class="phishing-finding"><span class="ai-severity severity-${escapeHtml(item.severity)}">${escapeHtml(item.severity)}</span><div><b>${escapeHtml(item.name)}</b><p>${escapeHtml(item.explanation)}</p>${item.evidence ? `<small>Observed: ${escapeHtml(item.evidence)}</small>` : ''}<p>${escapeHtml(item.recommended_action)}</p></div></article>`).join('');
-  return `<section class="phishing-panel"><div class="ai-panel-heading"><span class="ai-label">AUTOMATED HEURISTIC</span><h3>Phishing and brand signals</h3></div>${findings || '<p>No selected URL or credential-form heuristic matched.</p>'}<p class="ai-muted">${escapeHtml(analysis.assessment || '')} ${escapeHtml(analysis.threat_intelligence?.message || 'No external threat feed was queried.')}</p></section>`;
+  const emptyState = analysis.status === 'disabled' ? escapeHtml(analysis.assessment || 'This check is disabled in the current scanner configuration.') : 'No selected URL or credential-form heuristic matched.';
+  return `<section class="phishing-panel"><div class="ai-panel-heading"><span class="ai-label">AUTOMATED HEURISTIC</span><h3>Phishing and brand signals</h3></div>${findings || `<p>${emptyState}</p>`}<p class="ai-muted">${escapeHtml(analysis.assessment || analysis.message || '')} ${escapeHtml(analysis.threat_intelligence?.message || 'No external threat feed was queried.')}</p></section>`;
 }
 
 function renderResult(result) {
@@ -109,7 +110,9 @@ function renderResult(result) {
     <details class="check-card"><summary><span class="check-mark ${checkClass(check)}">${check.status === 'PASS' ? '✓' : ['UNKNOWN', 'NOT APPLICABLE'].includes(check.status) ? '—' : '!'}</span>
       <span class="check-title"><b>${escapeHtml(check.name)}</b><span class="finding-status status-${checkClass(check)}">${escapeHtml(check.status)}</span></span></summary>
       <p>${escapeHtml(check.explanation || check.detail || '')}</p><small>Source: ${escapeHtml(check.source || 'Live scan')}${check.score_contribution ? ` · Score impact: +${Number(check.score_contribution)} points` : ''}</small>${check.evidence ? `<small>Evidence: ${escapeHtml(check.evidence)}</small>` : ''}</details>`).join('')}</div></section>`).join('');
+  const threat = result.verified_threat_match ? `<aside class="verified-threat-match"><span>HUMAN-REVIEWED THREAT RECORD</span><strong>${escapeHtml(result.verified_threat_match.domain)} · ${escapeHtml(result.verified_threat_match.category)}</strong><p>${escapeHtml(result.verified_threat_match.verification_note || '')}</p><small>Verified record · first seen ${dateLabel(result.verified_threat_match.first_seen)} · This is a separate moderator-created signal and does not change the technical trust score.</small></aside>` : '';
   $('#result-container').innerHTML = `
+    ${threat}
     <article class="result-summary"><div class="result-score"><div class="result-ring ${scoreColor}"><svg viewBox="0 0 100 100"><circle class="ring-track" cx="50" cy="50" r="42"/><circle class="ring-progress" cx="50" cy="50" r="42" style="stroke-dasharray:${progress} ${circumference}"/></svg><div><strong>${result.label === 'Insufficient Data' ? '—' : escapeHtml(result.score)}</strong><small>trust score</small></div></div><div class="result-score-copy"><span class="risk-badge ${riskClass(result.label)}">${escapeHtml(result.label)}</span><span class="result-domain">${escapeHtml(result.domain)}</span><span class="result-meta">Scanned ${dateLabel(result.created_at)}</span></div></div>
     <div class="result-explanation"><strong>${escapeHtml(result.summary)}</strong><p>Technical security signals do not establish who operates a business. Unknown or unavailable checks add no risk points. Score: 100 minus ${Number(result.calculation?.warning_points || 0)} weighted warning points; this is a prioritization aid, not a probability.</p><a class="method-link" href="#faq">How to read this report ↗</a><div class="result-meta">Scanner ${escapeHtml(result.scanner_version || 'unknown')}${result.title ? ` · ${escapeHtml(result.title)}` : ''}${result.status_code ? ` · HTTP ${Number(result.status_code)}` : ''}</div></div></article>
     <div class="result-block"><div class="result-block-heading"><h3>What we checked</h3><span>${(result.findings || result.checks || []).length} observations · expand a finding for evidence</span></div>${findings || '<div class="activity-empty">No page checks were available for this scan.</div>'}</div>
@@ -605,7 +608,7 @@ function renderAuth() {
   button.title = state.user?.email || 'Sign in';
   const dashboardLink = $('#main-nav a[data-nav="dashboard"]');
   dashboardLink.textContent = state.user?.role === 'admin' ? 'Admin review' : 'My activity';
-  dashboardLink.href = state.user?.role === 'admin' ? '#community' : '#dashboard';
+  dashboardLink.href = state.user?.role === 'admin' ? '/admin.html' : '#dashboard';
   renderReports();
 }
 

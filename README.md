@@ -1,6 +1,6 @@
 # TrustShield AI
 
-TrustShield AI is an evidence-first website assessment and community reporting MVP. It checks a public page using deterministic rules, explains the signals it could observe, accepts structured incident reports, and provides a small human moderation workflow.
+TrustShield AI is an evidence-first website assessment and community reporting MVP. It checks a public page using deterministic rules, explains the signals it could observe, accepts structured incident reports, and provides a database-backed administrator operations console.
 
 ## Run locally
 
@@ -44,6 +44,9 @@ This configuration serves the frontend only. The current API is the Python `serv
 - Moderation uses distinct states: Submitted, Under Review, More Information Required, Partially Supported, Verified Findings, Inconsistencies Found, Rejected, and Disputed. Status changes require an internal reason, are audit logged, and persist owner notifications; requests for more information also include a separate public message.
 - Community search filters by website, domain, business, category, and status; sorts by latest or same-domain discussion count; and uses database-backed pagination. Website scan results include database-backed report counts and review statuses.
 - User dashboards show actual scan/report totals, review queues, pending guidance, report history, and unread/read notifications. Admin views include queue metrics, evidence triage, related reports, dispute/accuracy review, and CSV export for the currently filtered report page.
+- The `/admin.html` console provides live database metrics and scan charts, searchable user/report/scan/threat/incident views, protected role and account controls, report assignment and private notes, linked incident timelines, scanner settings, AI provenance/evaluation, and an append-only audit feed. Every management action is backed by an admin-authorized API and audit record.
+- Scanner timeout and redirect limits, optional phishing heuristics, and optional AI page analysis can be changed at runtime from the administrator console; subsequent scans use the saved configuration.
+- A threat record can only be created from a report already moved to `Verified Findings` by a moderator. Later scans can display this separate human-reviewed record; it does not change the deterministic technical score.
 - Users may attach up to 3 PNG, JPG, WEBP, PDF, or TXT files at 2 MB each. Files are stored outside the public web directory and downloads are restricted to the report owner or an administrator.
 - Optional AI-assisted page-content findings, separate phishing/brand similarity heuristics, and private complaint assistance. AI observations do not affect deterministic trust scoring or report status.
 - Local text extraction for TXT, optional PDF extraction and image OCR, consent-gated analysis of extracted text, and admin-only feedback/outcome curation with evaluation metrics.
@@ -54,9 +57,9 @@ The community feed is shared by design. The dashboard's **My reports**, scan his
 
 Evidence triage checks file structure/readability, category hints, duplicate hashes, date consistency, submitted URL relationships, and report completeness. Optional OCR/text extraction and AI analysis can organize evidence, but do not establish authenticity or prove an allegation. External analysis is only run after explicit consent, common personal-data patterns are redacted locally, and original files are never sent. Similar-report matches are moderator leads, not independent confirmation. Community numbers include unverified reports and must not be treated as proof of wrongdoing.
 
-The app does not call domain registration/WHOIS, threat intelligence, antivirus, payment, review, or business registries. These checks are unavailable; no external verification is fabricated. Website content checks cover only a bounded text read of the requested page and may miss content on other pages, scripts, or behind login. The scanner and complaint triage are deterministic and are not AI-powered.
+The app does not call domain registration/WHOIS, external threat feeds, antivirus, payment, review, or business registries. These checks are unavailable; no external verification is fabricated. Local threat records are manually added from moderator-verified reports, not external intelligence. Website content checks cover only a bounded text read of the requested page and may miss content on other pages, scripts, or behind login. Baseline scanner and complaint triage rules are deterministic. Optional provider-assisted AI analysis is separately labeled when configured; it does not establish fraud, alter the trust score, or set a report's review status.
 
-Reports remain allegations unless a moderator records a scoped review finding; even then, the status is not a legal determination. Evidence stays private until the report has entered a public review state. Guest report access depends on the browser’s locally stored token. Admin bootstrap uses an environment variable and is suitable for a local MVP, not a production identity system. Use HTTPS, a production database, durable rate limiting, malware scanning, retention controls, backups, and an operational moderation policy before public deployment.
+Reports remain allegations unless a moderator records a scoped review finding; even then, the status is not a legal determination. Evidence stays private until the report has entered a public review state. Guest report access depends on the browser’s locally stored token. Admin bootstrap uses an environment variable and is suitable for a local MVP, not a production identity system. User role changes are restricted to administrators and audited, but analyst-specific permissions are not implemented. Use HTTPS, a production database, durable rate limiting, malware scanning, retention controls, backups, and an operational moderation policy before public deployment.
 
 ## Project guides
 
