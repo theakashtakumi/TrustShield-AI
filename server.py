@@ -986,10 +986,14 @@ class Handler(BaseHTTPRequestHandler):
                     where.append("s.label=?"); args.append(status)
                 condition = " WHERE " + " AND ".join(where) if where else ""
                 total = conn.execute("SELECT COUNT(*) FROM scans s LEFT JOIN users u ON u.id=s.user_id" + condition, args).fetchone()[0]
-                rows = [dict(row) for row in conn.execute("SELECT s.id,s.url,s.domain,s.score,s.label,s.summary,s.checks,s.created_at,s.scanner_version,u.name user_name,u.email user_email FROM scans s LEFT JOIN users u ON u.id=s.user_id" + condition + " ORDER BY s.id DESC LIMIT ? OFFSET ?", (*args, limit, offset))]
+                rows = [dict(row) for row in conn.execute("SELECT s.id,s.url,s.domain,s.score,s.label,s.summary,s.checks,s.ai_analysis,s.phishing_analysis,s.created_at,s.scanner_version,u.name user_name,u.email user_email FROM scans s LEFT JOIN users u ON u.id=s.user_id" + condition + " ORDER BY s.id DESC LIMIT ? OFFSET ?", (*args, limit, offset))]
                 for row in rows:
                     try: row["checks"] = json.loads(row["checks"] or "[]")
                     except json.JSONDecodeError: row["checks"] = []
+                    try: row["ai_analysis"] = json.loads(row["ai_analysis"] or "null")
+                    except (json.JSONDecodeError, TypeError): row["ai_analysis"] = None
+                    try: row["phishing_analysis"] = json.loads(row["phishing_analysis"] or "null")
+                    except (json.JSONDecodeError, TypeError): row["phishing_analysis"] = None
                 return self.send_json({"scans": rows, "total": total, "page": page, "limit": limit}) or True
             if path == "/api/admin/reports":
                 where, args = [], []
@@ -1005,7 +1009,8 @@ class Handler(BaseHTTPRequestHandler):
                 total = conn.execute("SELECT COUNT(*) FROM reports r" + condition, args).fetchone()[0]
                 rows = [dict(row) for row in conn.execute("""
                     SELECT r.id,r.url,r.domain,r.business,r.category,r.status,r.priority,r.assigned_to,r.created_at,r.public_summary,
-                      u.name assigned_name,(CASE WHEN r.evidence_name<>'' THEN 1 ELSE 0 END + (SELECT COUNT(*) FROM report_attachments a WHERE a.report_id=r.id) + (SELECT COUNT(*) FROM report_followups f WHERE f.report_id=r.id AND f.evidence_path<>'')) evidence_count
+                      u.name assigned_name,(CASE WHEN r.evidence_name<>'' THEN 1 ELSE 0 END + (SELECT COUNT(*) FROM report_attachments a WHERE a.report_id=r.id) + (SELECT COUNT(*) FROM report_followups f WHERE f.report_id=r.id AND f.evidence_path<>'')) evidence_count,
+                      (CASE WHEN r.ai_analysis IS NOT NULL AND r.ai_analysis<>'' AND r.ai_analysis<>'null' THEN 1 ELSE 0 END) has_ai
                     FROM reports r LEFT JOIN users u ON u.id=r.assigned_to
                 """ + condition + " ORDER BY CASE r.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, r.created_at DESC LIMIT ? OFFSET ?", (*args, limit, offset))]
                 return self.send_json({"reports": rows, "total": total, "page": page, "limit": limit}) or True
