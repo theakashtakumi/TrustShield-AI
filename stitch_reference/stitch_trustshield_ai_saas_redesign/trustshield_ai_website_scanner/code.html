@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_standard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Inter:wght@100..900&family=JetBrains+Mono:wght@100..900&display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{colors:{"surface":"#0c1321","tertiary-container":"#00a572","surface-container-lowest":"#070e1c","on-error-container":"#ffdad6","inverse-primary":"#0354d6","surface-bright":"#323949","on-primary":"#002a76","on-primary-fixed":"#00184a","surface-container-low":"#151b2a","inverse-on-surface":"#2a3040","on-error":"#690005","on-background":"#dce2f6","on-primary-fixed-variant":"#003fa5","outline":"#8d90a0","on-secondary-fixed":"#001f25","on-secondary-container":"#00515d","primary-fixed":"#dbe1ff","tertiary":"#4edea3","tertiary-fixed-dim":"#4edea3","primary":"#b3c5ff","on-tertiary-container":"#00311f","secondary-fixed-dim":"#2fd9f4","error":"#ffb4ab","on-primary-container":"#002467","outline-variant":"#434654","surface-variant":"#2e3544","on-secondary":"#00363e","on-surface-variant":"#c3c6d7","surface-container":"#19202e","on-secondary-fixed-variant":"#004e5a","surface-container-highest":"#2e3544","primary-fixed-dim":"#b3c5ff","on-surface":"#dce2f6","secondary-container":"#00cbe6","on-tertiary-fixed":"#002113","background":"#0c1321","tertiary-fixed":"#6ffbbe","on-tertiary-fixed-variant":"#005236","on-tertiary":"#003824","primary-container":"#5f8bff","secondary-fixed":"#a2eeff","secondary":"#5de6ff","error-container":"#93000a","surface-container-high":"#232a39","surface-tint":"#b3c5ff","surface-dim":"#0c1321","inverse-surface":"#dce2f6"},borderRadius:{"DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"0.75rem"},spacing:{"margin-mobile":"1rem","space-sm":"0.5rem","margin":"2rem","space-xs":"0.25rem","gutter-mobile":"0.75rem","space-lg":"1.5rem","gutter":"1.5rem","space-xl":"2.5rem","space-md":"1rem"},fontFamily:{"label-badge":["Inter"],"body-md":["Inter"],"label-code":["JetBrains Mono"],"headline-sm":["Geist"],"display-lg-mobile":["Geist"],"headline-xl":["Geist"],"body-sm":["Inter"],"headline-lg":["Geist"],"display-lg":["Geist"],"headline-xl-mobile":["Geist"],"metric-stat":["Geist"],"body-lg":["Inter"]},fontSize:{"label-badge":["11px",{"lineHeight":"14px","letterSpacing":"0.04em","fontWeight":"600"}],"body-md":["14px",{"lineHeight":"20px","letterSpacing":"-0.005em","fontWeight":"400"}],"label-code":["13px",{"lineHeight":"18px","letterSpacing":"-0.01em","fontWeight":"400"}],"headline-sm":["18px",{"lineHeight":"24px","letterSpacing":"-0.015em","fontWeight":"500"}],"display-lg-mobile":["32px",{"lineHeight":"40px","letterSpacing":"-0.02em","fontWeight":"600"}],"headline-xl":["36px",{"lineHeight":"44px","letterSpacing":"-0.025em","fontWeight":"600"}],"body-sm":["12px",{"lineHeight":"16px","letterSpacing":"0em","fontWeight":"400"}],"headline-lg":["24px",{"lineHeight":"32px","letterSpacing":"-0.02em","fontWeight":"500"}],"display-lg":["48px",{"lineHeight":"56px","letterSpacing":"-0.03em","fontWeight":"600"}],"headline-xl-mobile":["28px",{"lineHeight":"36px","letterSpacing":"-0.02em","fontWeight":"600"}],"metric-stat":["28px",{"lineHeight":"32px","letterSpacing":"-0.02em","fontWeight":"600"}],"body-lg":["16px",{"lineHeight":"24px","letterSpacing":"-0.01em","fontWeight":"400"}]}}}};</script></head><body class="bg-surface font-body-md text-on-surface antialiased min-h-screen flex flex-col relative selection:bg-primary selection:text-on-primary"><div class="fixed inset-0 pointer-events-none bg-[radial-gradient(circle_at_50%_0%,rgba(95,139,255,0.12),transparent_70%)] z-0"></div><header class="fixed top-0 w-full z-50 bg-surface/80 backdrop-blur-xl border-b border-outline-variant/30 shadow-[0_4px_24px_rgba(0,0,0,0.4)]"><div class="h-20 w-full px-margin flex items-center justify-between gap-gutter"><div class="flex items-center gap-space-md"><a class="flex items-center gap-space-sm" data-path="home" href="#"><img alt="TrustShield AI Logo" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/ALJJyrAyEbpa3jLWpLQe2B4_Ry8ndwHsLx42Kg2EJ4UMZ6y7PhbmkpCcBeUPiI0eOdRfvoToSuz20Gj7MJd4JeldARuCXx_bR9G30loCkbaDVi30jqbJ85SRazt8oEMvfSEQWM5Lo6CuRHOCrjN4WcagCWw11GB0Dfo3E5_tjTfBHF_ZkSMTAWRV9uDBqHzh2uGNUq0PAzeB8B1rfg25YfSN5EWyStWH4IBGmZ5zrSqDK4uMgw"/><span class="font-headline-sm text-headline-sm font-semibold tracking-tight text-on-surface">TrustShield AI</span></a><div class="hidden xl:flex items-center gap-space-xs px-space-sm py-0.5 rounded-full bg-surface-container-high border border-outline-variant/40 shadow-[0_0_12px_rgba(78,222,163,0.15)]"><span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span><span class="font-label-badge text-label-badge uppercase tracking-wider text-tertiary font-mono">ENGINE v4.2 ACTIVE</span></div></div><nav class="hidden lg:flex items-center gap-space-xs" data-active-classes="bg-surface-container-high text-primary font-medium rounded-lg shadow-inner"><a class="px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low transition-all font-body-md text-body-md" data-path="home" href="#">Home</a><a aria-current="page" class="px-space-sm py-1.5 transition-all bg-surface-container-high text-primary font-medium rounded-lg shadow-inner" data-path="website-scanner" href="#">Website Scanner</a><a class="px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low transition-all font-body-md text-body-md" data-path="security-dashboard" href="#">Security Dashboard</a><a class="px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low transition-all font-body-md text-body-md" data-path="threat-reports" href="#">Threat Reports</a><a class="px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low transition-all font-body-md text-body-md" data-path="report-a-scam" href="#">Report a Scam</a><a class="px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low transition-all font-body-md text-body-md" data-path="learn" href="#">Learn</a></nav><div class="flex items-center gap-space-md"><div class="hidden sm:flex items-center gap-space-xs px-space-sm py-1 rounded-full bg-surface-container-lowest border border-tertiary/20"><span class="relative flex h-2 w-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-tertiary opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-tertiary"></span></span><span class="font-label-badge text-label-badge font-mono text-tertiary">Engine Operational</span></div><a class="hidden md:inline-flex text-on-surface-variant hover:text-on-surface font-body-md text-body-md transition-colors" data-path="login" href="#">Sign In</a><a class="inline-flex items-center justify-center px-space-md py-space-sm rounded-lg bg-primary-container text-on-primary-container font-headline-sm text-label-code font-semibold shadow-[0_0_20px_rgba(95,139,255,0.4)] hover:shadow-[0_0_25px_rgba(93,230,255,0.6)] hover:bg-secondary-container hover:text-on-secondary-container transition-all" data-path="website-scanner" href="#">Scan a Website</a><div class="flex items-center pl-space-xs"><img alt="Profile" class="w-8 h-8 rounded-full object-cover ring-1 ring-primary/40" src="https://lh3.googleusercontent.com/aida-public/AB6AXuArZhEseU5_cf4KW8eHy-m3d0-rZAhhhvq9J6GADJ7bDZ8rMW9F3NizlKicqJ8-LWWL1XYrsP_K_5z2CdZaK-ZEQwVyLdcIWCvZ6BrW3FRrlNfUsY5hkAYH8ZGqzVlno9LSDfzLdKEr67NL2-jFCCs_JDWWPa5upc0PMGtmU7WOlz8gZle2SUcMjV5m9caNJkgemfQHD97_yXtKRZKT785ChtxbKnXhgNMTYWHVkDbl"/></div></div></div></header><main class="w-full pt-20 bg-surface flex-1 relative z-10"><div class="flex flex-col w-full">
+<!-- Command Header & Input Matrix -->
+<section class="w-full px-margin py-space-lg bg-surface-container-lowest shadow-sm">
+<div class="max-w-7xl mx-auto flex flex-col gap-space-md">
+<!-- Session Telemetry Bar -->
+<div class="flex flex-wrap items-center justify-between gap-space-sm text-on-surface-variant font-label-code text-label-code">
+<div class="flex items-center gap-space-sm">
+<span class="flex items-center gap-1.5 px-space-sm py-0.5 rounded-full bg-error/10 text-error font-semibold text-label-badge uppercase tracking-wider">
+<span class="w-1.5 h-1.5 rounded-full bg-error animate-ping"></span>
+            Scan Completed • Threat Confirmed
+          </span>
+<span class="opacity-40">|</span>
+<span class="flex items-center gap-1">
+<span class="material-symbols-outlined text-sm text-secondary">schedule</span>
+            Analyzed on October 24, 2024 at 14:32:08 UTC
+          </span>
+</div>
+<div class="flex items-center gap-space-md">
+<span class="text-on-surface-variant/80">Engine Latency: <span class="text-tertiary">382ms</span></span>
+<span class="text-on-surface-variant/80">Entropy Depth: <span class="text-secondary">Level 4 Recursive</span></span>
+<span class="px-space-sm py-0.5 rounded bg-surface-container-high text-primary font-mono text-body-sm">SHA-256: 4f89...c82a</span>
+</div>
+</div>
+<!-- Main Input Bar -->
+<div class="w-full p-1.5 rounded-xl bg-surface-container-high shadow-xl flex flex-col md:flex-row items-stretch md:items-center gap-1.5">
+<div class="flex items-center px-space-sm py-2 rounded-lg bg-surface-container-lowest text-on-surface">
+<span class="material-symbols-outlined text-secondary text-sm mr-1">lock</span>
+<span class="font-label-code text-label-code text-secondary font-semibold">https://</span>
+</div>
+<div class="relative flex-1 flex items-center min-w-0">
+<input class="w-full bg-transparent px-space-sm py-2.5 font-label-code text-label-code text-on-surface placeholder-outline focus:outline-none truncate" id="url-input" placeholder="Enter target domain or deep URL to execute autonomous scan..." type="text" value="verify-account-security-update.com/login"/>
+<button class="flex items-center gap-1 px-space-sm py-1 mr-1 rounded bg-surface-container text-on-surface-variant hover:text-on-surface hover:bg-surface-bright transition-colors text-label-badge font-label-badge" onclick="navigator.clipboard.readText().then(t => { if(t) document.getElementById('url-input').value = t; })" title="Paste from clipboard">
+<span class="material-symbols-outlined text-xs">content_paste</span>
+<span>PASTE</span>
+</button>
+</div>
+<div class="flex items-center gap-2">
+<button class="w-full md:w-auto px-space-lg py-2.5 rounded-lg bg-primary-container text-on-primary-container font-headline-sm text-body-md font-semibold hover:bg-secondary-container hover:text-on-secondary-container transition-all flex items-center justify-center gap-2 shadow-md hover:shadow-xl active:scale-95" id="scan-btn" onclick="triggerRescan()">
+<span class="material-symbols-outlined text-base" id="scan-icon">radar</span>
+<span id="scan-label">Start Deep Scan</span>
+</button>
+</div>
+</div>
+<!-- Quick Analysis Parameter Tags -->
+<div class="flex flex-wrap items-center gap-space-xs text-body-sm text-on-surface-variant">
+<span class="font-label-badge uppercase tracking-wider text-outline text-xs">Active Heuristics:</span>
+<span class="px-space-xs py-0.5 rounded bg-surface-container text-on-surface-variant font-label-code text-xs">Chromium Headless v129</span>
+<span class="px-space-xs py-0.5 rounded bg-surface-container text-on-surface-variant font-label-code text-xs">OCR Visual Signature</span>
+<span class="px-space-xs py-0.5 rounded bg-surface-container text-on-surface-variant font-label-code text-xs">TLS Decryption Sink</span>
+<span class="px-space-xs py-0.5 rounded bg-surface-container text-on-surface-variant font-label-code text-xs">ASN Historical Reputation</span>
+</div>
+</div>
+</section>
+<!-- Main Pipeline Execution & Assessment Surface -->
+<div class="w-full px-margin py-space-xl">
+<div class="max-w-7xl mx-auto flex flex-col gap-space-xl">
+<!-- 5-Stage Stepper Track -->
+<div class="w-full p-space-md rounded-xl bg-surface-container shadow-md flex flex-col gap-space-sm">
+<div class="flex items-center justify-between pb-space-xs">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary text-sm">reorder</span>
+<span class="font-headline-sm text-headline-sm font-semibold text-on-surface">Inspection Pipeline Telemetry</span>
+</div>
+<span class="font-label-code text-label-code text-tertiary">5/5 Verification Phases Completed</span>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-5 gap-space-sm">
+<!-- Step 1: DNS -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col justify-between gap-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-label-badge text-label-badge text-outline uppercase tracking-wider">Phase 01</span>
+<span class="flex items-center text-xs text-error font-semibold font-label-badge px-1.5 py-0.5 rounded bg-error/15">
+                WARN
+              </span>
+</div>
+<div>
+<div class="font-headline-sm text-body-md font-semibold text-on-surface flex items-center gap-1.5">
+<span class="material-symbols-outlined text-sm text-primary">dns</span>
+                Domain & DNS
+              </div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">Registrar: NameCheap<br/><span class="text-error font-medium">Created: 3 days ago</span></p>
+</div>
+<div class="w-full bg-surface-container-highest h-1 rounded-full overflow-hidden mt-1">
+<div class="bg-primary h-full w-full"></div>
+</div>
+</div>
+<!-- Step 2: SSL -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col justify-between gap-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-label-badge text-label-badge text-outline uppercase tracking-wider">Phase 02</span>
+<span class="flex items-center text-xs text-tertiary font-semibold font-label-badge px-1.5 py-0.5 rounded bg-tertiary/15">
+                VALID
+              </span>
+</div>
+<div>
+<div class="font-headline-sm text-body-md font-semibold text-on-surface flex items-center gap-1.5">
+<span class="material-symbols-outlined text-sm text-primary">lock_reset</span>
+                SSL Certificate
+              </div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">Let's Encrypt Free DV<br/><span class="text-outline">Missing OV/EV verify</span></p>
+</div>
+<div class="w-full bg-surface-container-highest h-1 rounded-full overflow-hidden mt-1">
+<div class="bg-primary h-full w-full"></div>
+</div>
+</div>
+<!-- Step 3: Headers -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col justify-between gap-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-label-badge text-label-badge text-outline uppercase tracking-wider">Phase 03</span>
+<span class="flex items-center text-xs text-error font-semibold font-label-badge px-1.5 py-0.5 rounded bg-error/15">
+                FAIL
+              </span>
+</div>
+<div>
+<div class="font-headline-sm text-body-md font-semibold text-on-surface flex items-center gap-1.5">
+<span class="material-symbols-outlined text-sm text-primary">featured_play_list</span>
+                Security Headers
+              </div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">5 Headers Missing<br/><span class="text-error font-medium">CSP / HSTS absent</span></p>
+</div>
+<div class="w-full bg-surface-container-highest h-1 rounded-full overflow-hidden mt-1">
+<div class="bg-error h-full w-full"></div>
+</div>
+</div>
+<!-- Step 4: Heuristics -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col justify-between gap-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-label-badge text-label-badge text-outline uppercase tracking-wider">Phase 04</span>
+<span class="flex items-center text-xs text-error font-semibold font-label-badge px-1.5 py-0.5 rounded bg-error/15">
+                ALERT
+              </span>
+</div>
+<div>
+<div class="font-headline-sm text-body-md font-semibold text-on-surface flex items-center gap-1.5">
+<span class="material-symbols-outlined text-sm text-primary">fingerprint</span>
+                Heuristics & DOM
+              </div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">Deceptive login form<br/><span class="text-error font-medium">Brand spoof detected</span></p>
+</div>
+<div class="w-full bg-surface-container-highest h-1 rounded-full overflow-hidden mt-1">
+<div class="bg-error h-full w-full"></div>
+</div>
+</div>
+<!-- Step 5: Threat Feeds -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col justify-between gap-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-label-badge text-label-badge text-outline uppercase tracking-wider">Phase 05</span>
+<span class="flex items-center text-xs text-error font-semibold font-label-badge px-1.5 py-0.5 rounded bg-error/15">
+                FLAGGED
+              </span>
+</div>
+<div>
+<div class="font-headline-sm text-body-md font-semibold text-on-surface flex items-center gap-1.5">
+<span class="material-symbols-outlined text-sm text-primary">hub</span>
+                Threat Intelligence
+              </div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">PhishTank • OpenPhish<br/><span class="text-error font-medium">Present in 3 feeds</span></p>
+</div>
+<div class="w-full bg-surface-container-highest h-1 rounded-full overflow-hidden mt-1">
+<div class="bg-error h-full w-full"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Master Risk Hero Unit -->
+<div class="w-full rounded-2xl bg-surface-container-low shadow-xl p-space-lg md:p-space-xl relative overflow-hidden">
+<!-- Visual Accent Glow -->
+<div class="absolute -right-20 -top-20 w-96 h-96 rounded-full bg-error/10 blur-3xl pointer-events-none"></div>
+<div class="absolute -left-20 -bottom-20 w-96 h-96 rounded-full bg-primary/5 blur-3xl pointer-events-none"></div>
+<div class="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-space-xl items-center">
+<!-- Left Column: Critical Gauge & Score -->
+<div class="lg:col-span-5 flex flex-col items-center sm:items-start text-center sm:text-left gap-space-md">
+<div class="inline-flex items-center gap-2 px-space-md py-1.5 rounded-full bg-error/20 text-error shadow-sm">
+<span class="relative flex h-3 w-3">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-error opacity-75"></span>
+<span class="relative inline-flex rounded-full h-3 w-3 bg-error"></span>
+</span>
+<span class="font-label-badge text-label-badge uppercase tracking-wider font-bold">CRITICAL RISK DETECTED</span>
+</div>
+<div class="flex items-center gap-space-lg">
+<!-- Radial Donut SVG Representation -->
+<div class="relative w-36 h-36 flex items-center justify-center flex-shrink-0">
+<svg class="w-full h-full transform -rotate-90" viewbox="0 0 120 120">
+<circle class="text-surface-container-highest" cx="60" cy="60" fill="transparent" r="50" stroke="currentColor" stroke-width="10"></circle>
+<circle class="text-error transition-all duration-1000 ease-out" cx="60" cy="60" fill="transparent" r="50" stroke="currentColor" stroke-dasharray="314.159" stroke-dashoffset="25.13" stroke-linecap="round" stroke-width="10"></circle>
+</svg>
+<div class="absolute flex flex-col items-center justify-center">
+<span class="font-headline-xl text-headline-xl font-bold text-on-surface leading-none">92</span>
+<span class="font-label-code text-body-sm text-outline font-semibold">/100</span>
+</div>
+</div>
+<div class="flex flex-col">
+<span class="font-label-badge text-label-badge uppercase tracking-wider text-error font-semibold">Calculated Threat Index</span>
+<span class="font-headline-lg text-headline-lg font-bold text-on-surface">Extreme Phishing Severity</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant mt-1">Score above 75 warrants automated perimeter firewall blacklisting and proxy neutralization.</span>
+</div>
+</div>
+<!-- Warning Notice Strip -->
+<div class="w-full p-space-md rounded-xl bg-error-container/40 text-on-error-container flex items-start gap-space-sm shadow-inner">
+<span class="material-symbols-outlined text-error text-xl flex-shrink-0 mt-0.5">dangerous</span>
+<div class="flex flex-col">
+<span class="font-headline-sm text-body-md font-bold text-error">Crucial Security Warning:</span>
+<span class="font-body-md text-body-md text-on-surface font-medium leading-relaxed">
+                  Do NOT enter credentials, personal data, or payment information on this page. High likelihood of credential interception.
+                </span>
+</div>
+</div>
+</div>
+<!-- Right Column: Plain-English Synthesis & Nuanced Indicators -->
+<div class="lg:col-span-7 flex flex-col gap-space-md">
+<div class="p-space-lg rounded-xl bg-surface-container flex flex-col gap-space-sm shadow-md">
+<div class="flex items-center justify-between">
+<span class="font-label-badge text-label-badge uppercase tracking-wider text-secondary font-semibold">Executive Threat Synthesis</span>
+<span class="font-label-code text-body-sm text-outline">Confidence: 99.4%</span>
+</div>
+<p class="font-body-lg text-body-lg text-on-surface leading-relaxed">
+                This website exhibits multiple hallmarks of a credential phishing portal targeting enterprise accounts. It was registered 3 days ago, lacks essential HTTP protection headers, and utilizes cloaked redirect scripts masquerading as a legitimate authentication portal.
+              </p>
+</div>
+<!-- Nuanced Indicators Grid -->
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-space-sm">
+<div class="p-space-md rounded-xl bg-surface-container flex items-start gap-space-sm shadow-sm">
+<span class="material-symbols-outlined text-tertiary flex-shrink-0 text-xl">verified</span>
+<div class="flex flex-col">
+<span class="font-headline-sm text-body-md font-semibold text-on-surface">Valid TLS 1.3 Handshake</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">
+                    Present & active. <strong class="text-on-surface">Nuance Note:</strong> Cybercriminals frequently deploy free DV certificates to establish an illusion of trust.
+                  </span>
+</div>
+</div>
+<div class="p-space-md rounded-xl bg-surface-container flex items-start gap-space-sm shadow-sm">
+<span class="material-symbols-outlined text-error flex-shrink-0 text-xl">lan</span>
+<div class="flex flex-col">
+<span class="font-headline-sm text-body-md font-semibold text-on-surface">Data Exfiltration Channel</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">
+                    Client submission scripts hook directly into an external unvetted messaging API endpoint rather than valid backend DBs.
+                  </span>
+</div>
+</div>
+</div>
+<!-- Global Action Bar -->
+<div class="flex flex-wrap items-center gap-space-sm pt-space-xs">
+<button class="px-space-md py-2.5 rounded-lg bg-error text-on-error font-body-md font-semibold hover:bg-error-container hover:text-on-error-container transition-all flex items-center gap-2 shadow-md" onclick="alert('Report submitted to US-CERT & global phishing clearinghouses with forensic payload.')">
+<span class="material-symbols-outlined text-base">report_problem</span>
+<span>Report This Website to CERT</span>
+</button>
+<button class="px-space-md py-2.5 rounded-lg bg-surface-container-high text-primary hover:bg-surface-bright hover:text-on-surface transition-all font-body-md font-medium flex items-center gap-2 shadow-sm" onclick="downloadJsonReport()">
+<span class="material-symbols-outlined text-base">download</span>
+<span>Export Security JSON</span>
+</button>
+<button class="px-space-md py-2.5 rounded-lg bg-surface-container text-on-surface-variant hover:text-on-surface hover:bg-surface-bright transition-all font-body-md font-medium flex items-center gap-2 ml-auto" onclick="document.getElementById('url-input').focus(); window.scrollTo({top: 0, behavior: 'smooth'});">
+<span class="material-symbols-outlined text-base">refresh</span>
+<span>Scan Another Domain</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Deep Forensic Inspection Grids -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-space-lg items-start">
+<!-- Panel A: Security Headers Inspection -->
+<div class="w-full rounded-2xl bg-surface-container p-space-lg shadow-md flex flex-col gap-space-md">
+<div class="flex items-center justify-between pb-space-xs">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary text-lg">policy</span>
+<h2 class="font-headline-sm text-headline-sm font-semibold text-on-surface">Security Headers</h2>
+</div>
+<span class="px-space-sm py-0.5 rounded bg-error/15 text-error font-label-badge text-label-badge font-semibold">1 OF 5 PASSING</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">
+            Critical response directives that instruct web browsers on sandbox, framing, and isolation policies.
+          </p>
+<div class="flex flex-col gap-space-xs">
+<!-- Header 1 -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1">
+<div class="flex items-center justify-between">
+<span class="font-label-code text-label-code font-bold text-on-surface">Content-Security-Policy</span>
+<span class="px-space-xs py-0.5 rounded bg-error/20 text-error font-label-badge text-xs font-semibold">MISSING (CRITICAL)</span>
+</div>
+<span class="font-body-sm text-xs text-on-surface-variant">Allows arbitrary cross-site script (XSS) execution and remote payload embedding.</span>
+</div>
+<!-- Header 2 -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1">
+<div class="flex items-center justify-between">
+<span class="font-label-code text-label-code font-bold text-on-surface">Strict-Transport-Security</span>
+<span class="px-space-xs py-0.5 rounded bg-error/20 text-error font-label-badge text-xs font-semibold">MISSING (HIGH)</span>
+</div>
+<span class="font-body-sm text-xs text-on-surface-variant">HSTS absent; protocol downgrade attacks (SSL stripping) viable.</span>
+</div>
+<!-- Header 3 -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1">
+<div class="flex items-center justify-between">
+<span class="font-label-code text-label-code font-bold text-on-surface">X-Frame-Options</span>
+<span class="px-space-xs py-0.5 rounded bg-error/20 text-error font-label-badge text-xs font-semibold">MISSING</span>
+</div>
+<span class="font-body-sm text-xs text-on-surface-variant">Clickjacking exposure: malicious iframes can encapsulate this login prompt.</span>
+</div>
+<!-- Header 4 -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1">
+<div class="flex items-center justify-between">
+<span class="font-label-code text-label-code font-bold text-on-surface">X-Content-Type-Options</span>
+<span class="px-space-xs py-0.5 rounded bg-tertiary/20 text-tertiary font-label-badge text-xs font-semibold">CONFIGURED</span>
+</div>
+<span class="font-body-sm text-xs text-tertiary/80 font-mono">nosniff active • Prevents MIME-sniffing exploits.</span>
+</div>
+<!-- Header 5 -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1">
+<div class="flex items-center justify-between">
+<span class="font-label-code text-label-code font-bold text-on-surface">Referrer-Policy</span>
+<span class="px-space-xs py-0.5 rounded bg-error/20 text-error font-label-badge text-xs font-semibold">MISSING</span>
+</div>
+<span class="font-body-sm text-xs text-on-surface-variant">Leads to credential tokens leaking via HTTP Referer query strings.</span>
+</div>
+</div>
+</div>
+<!-- Panel B: Domain & Certificate Forensics -->
+<div class="w-full rounded-2xl bg-surface-container p-space-lg shadow-md flex flex-col gap-space-md">
+<div class="flex items-center justify-between pb-space-xs">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary text-lg">travel_explore</span>
+<h2 class="font-headline-sm text-headline-sm font-semibold text-on-surface">Domain & Forensics</h2>
+</div>
+<span class="px-space-sm py-0.5 rounded bg-surface-container-high text-on-surface-variant font-label-badge text-label-badge">WHOIS / ASN</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">
+            Deep-layer registrar tracing, geographical network sinks, and cryptographic signature analysis.
+          </p>
+<div class="flex flex-col gap-space-xs">
+<div class="p-space-sm rounded-lg bg-surface-container-low flex items-center justify-between">
+<div class="flex flex-col">
+<span class="font-body-sm text-xs text-on-surface-variant">Domain Registration Age</span>
+<span class="font-headline-sm text-body-md font-bold text-error">3 Days Old</span>
+</div>
+<span class="px-space-xs py-0.5 rounded bg-error/20 text-error font-label-badge text-xs">SUSPICIOUS (< 30d)</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container-low flex items-center justify-between">
+<div class="flex flex-col">
+<span class="font-body-sm text-xs text-on-surface-variant">Server Location & Host</span>
+<span class="font-headline-sm text-body-md font-medium text-on-surface">Sofia, Bulgaria</span>
+<span class="font-label-code text-xs text-outline font-mono">AS204915 (FastHost BG)</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant text-lg">flag</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container-low flex items-center justify-between">
+<div class="flex flex-col">
+<span class="font-body-sm text-xs text-on-surface-variant">Authoritative Nameservers</span>
+<span class="font-headline-sm text-body-md font-medium text-on-surface">Cloudflare DNS</span>
+<span class="font-label-code text-xs text-outline font-mono">anita.ns.cloudflare.com</span>
+</div>
+<span class="px-space-xs py-0.5 rounded bg-surface-container text-on-surface-variant font-label-badge text-xs">FREE PROXY TIER</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container-low flex items-center justify-between">
+<div class="flex flex-col">
+<span class="font-body-sm text-xs text-on-surface-variant">Certificate Validity Remaining</span>
+<span class="font-headline-sm text-body-md font-medium text-on-surface">87 Days Remaining</span>
+<span class="font-label-code text-xs text-outline font-mono">Issuer: Let's Encrypt Authority R3</span>
+</div>
+<span class="material-symbols-outlined text-tertiary text-lg">verified_user</span>
+</div>
+</div>
+</div>
+<!-- Panel C: Detected Threat Vectors -->
+<div class="w-full rounded-2xl bg-surface-container p-space-lg shadow-md flex flex-col gap-space-md">
+<div class="flex items-center justify-between pb-space-xs">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary text-lg">pest_control</span>
+<h2 class="font-headline-sm text-headline-sm font-semibold text-on-surface">Threat Vectors</h2>
+</div>
+<span class="px-space-sm py-0.5 rounded bg-error/20 text-error font-label-badge text-label-badge font-bold">2 ACTIVE MATCHES</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">
+            Autonomous computer vision and heuristic sandbox execution discoveries.
+          </p>
+<div class="flex flex-col gap-space-sm">
+<!-- Vector 1 -->
+<div class="p-space-md rounded-xl bg-surface-container-low flex flex-col gap-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-label-badge text-xs text-error font-bold uppercase tracking-wider flex items-center gap-1">
+<span class="material-symbols-outlined text-sm">cloud_upload</span> Exfiltration API Hook
+                </span>
+<span class="font-label-code text-xs text-outline">DOM Heuristic</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface">
+                Form action handler submits raw authentication credentials directly to an unvetted <span class="font-label-code text-xs text-error font-mono">api.telegram.org/bot712.../sendMessage</span> exfiltration endpoint.
+              </p>
+</div>
+<!-- Vector 2 -->
+<div class="p-space-md rounded-xl bg-surface-container-low flex flex-col gap-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-label-badge text-xs text-error font-bold uppercase tracking-wider flex items-center gap-1">
+<span class="material-symbols-outlined text-sm">content_copy</span> Brand Impersonation
+                </span>
+<span class="font-label-code text-xs text-outline">Visual OCR AI</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface">
+                Neural visual scanner discovered a <span class="text-error font-semibold">98.2% structural similarity match</span> to the official enterprise financial login interface without corporate cryptographic ownership.
+              </p>
+<div class="w-full bg-surface-container-highest rounded-full h-1.5 overflow-hidden mt-1">
+<div class="bg-error h-full rounded-full" style="width: 98%;"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Real-Time Sandbox DOM Log Stream -->
+<div class="w-full rounded-2xl bg-surface-container-lowest p-space-lg shadow-md flex flex-col gap-space-sm">
+<div class="flex items-center justify-between pb-space-xs">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-tertiary text-base">terminal</span>
+<span class="font-headline-sm text-body-md font-semibold text-on-surface">Isolated Sandbox Execution Trace</span>
+<span class="px-space-xs py-0.5 rounded bg-tertiary/10 text-tertiary font-label-badge text-xs">VIRTUAL HEADLESS</span>
+</div>
+<span class="font-label-code text-xs text-outline">Displaying Last 6 Event Hooks</span>
+</div>
+<div class="bg-surface-container p-space-md rounded-xl font-label-code text-body-sm flex flex-col gap-1.5 overflow-x-auto">
+<div class="flex items-center gap-3 text-on-surface-variant">
+<span class="text-outline">14:32:04.102</span>
+<span class="text-tertiary font-semibold">[NET_INIT]</span>
+<span>GET request initiated → 185.193.12.84:443 (Sofia, BG) [TLS 1.3 negotiated, Cipher: AES_128_GCM]</span>
+</div>
+<div class="flex items-center gap-3 text-on-surface-variant">
+<span class="text-outline">14:32:04.489</span>
+<span class="text-primary font-semibold">[DOM_PARSE]</span>
+<span>Document Title: "Account Security Verification Required - Update Now"</span>
+</div>
+<div class="flex items-center gap-3 text-on-surface-variant">
+<span class="text-outline">14:32:04.620</span>
+<span class="text-secondary font-semibold">[SCRIPT_EXEC]</span>
+<span>Inline JS unpacked: base64 payload evaluated at runtime via Function() constructor</span>
+</div>
+<div class="flex items-center gap-3 text-on-surface-variant">
+<span class="text-outline">14:32:04.912</span>
+<span class="text-error font-semibold">[SUSPICIOUS_HOOK]</span>
+<span class="text-error">Captured keypress listener bound globally to `document.body` forwarding tokens to Telegram Webhook</span>
+</div>
+<div class="flex items-center gap-3 text-on-surface-variant">
+<span class="text-outline">14:32:05.210</span>
+<span class="text-error font-semibold">[THREAT_MATCH]</span>
+<span class="text-error">Signature matches IOC: PHISH_KIT_TYPHOON_V3.8 with active obfuscated canvas redirect</span>
+</div>
+<div class="flex items-center gap-3 text-tertiary">
+<span class="text-outline">14:32:05.340</span>
+<span class="text-tertiary font-semibold">[SANDBOX_HALT]</span>
+<span>Automated capture preserved. Harvester disconnected safely in 0.003 seconds.</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Interactive Scan Script -->
+<script>
+    function triggerRescan() {
+      const btn = document.getElementById('scan-btn');
+      const icon = document.getElementById('scan-icon');
+      const label = document.getElementById('scan-label');
+      const input = document.getElementById('url-input');
+
+      if (!input.value.trim()) {
+        input.focus();
+        return;
+      }
+
+      icon.classList.add('animate-spin');
+      label.textContent = 'Analyzing Deep Tree...';
+      btn.disabled = true;
+
+      setTimeout(() => {
+        icon.classList.remove('animate-spin');
+        label.textContent = 'Scan Finished';
+        btn.disabled = false;
+        setTimeout(() => {
+          label.textContent = 'Start Deep Scan';
+        }, 2000);
+      }, 1500);
+    }
+
+    function downloadJsonReport() {
+      const report = {
+        scanId: "TS-849204-SEC",
+        target: "https://verify-account-security-update.com/login",
+        timestamp: "2024-10-24T14:32:08Z",
+        threatIndex: 92,
+        classification: "CRITICAL_PHISHING",
+        verdict: "MALICIOUS",
+        domainDetails: {
+          ageDays: 3,
+          registrar: "NameCheap, Inc.",
+          geo: "Sofia, Bulgaria",
+          asn: "AS204915"
+        },
+        missingHeaders: ["Content-Security-Policy", "Strict-Transport-Security", "X-Frame-Options", "Referrer-Policy"],
+        exfiltrationVector: "api.telegram.org direct bot post"
+      };
+
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "trustshield-threat-report-92.json";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+  </script>
+</div></main><footer class="w-full bg-surface-container-lowest border-t border-outline-variant/20 relative z-10 pt-space-xl pb-space-lg"><div class="w-full px-margin"><div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-space-xl pb-space-xl border-b border-outline-variant/15"><div class="lg:col-span-2 flex flex-col gap-space-md"><div class="flex items-center gap-space-sm"><img alt="TrustShield AI Logo" class="h-7 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/ALJJyrAyEbpa3jLWpLQe2B4_Ry8ndwHsLx42Kg2EJ4UMZ6y7PhbmkpCcBeUPiI0eOdRfvoToSuz20Gj7MJd4JeldARuCXx_bR9G30loCkbaDVi30jqbJ85SRazt8oEMvfSEQWM5Lo6CuRHOCrjN4WcagCWw11GB0Dfo3E5_tjTfBHF_ZkSMTAWRV9uDBqHzh2uGNUq0PAzeB8B1rfg25YfSN5EWyStWH4IBGmZ5zrSqDK4uMgw"/><span class="font-headline-sm text-headline-sm font-semibold tracking-tight text-on-surface">TrustShield AI</span></div><p class="font-body-md text-body-md text-on-surface-variant max-w-sm">High-assurance autonomous URL verification and zero-day threat telemetry engine engineered for SecOps teams and cybersecurity leaders.</p><div class="inline-flex items-center gap-space-xs px-space-sm py-1 rounded bg-surface-container border border-outline-variant/30 text-on-surface-variant w-fit"><span class="font-label-code text-label-code text-secondary">Privacy-first, zero-retention URL intelligence</span></div></div><div class="flex flex-col gap-space-sm"><span class="font-label-badge text-label-badge uppercase tracking-wider text-on-surface font-semibold">Platform</span><a class="font-body-sm text-body-sm text-on-surface-variant hover:text-primary transition-colors" data-path="website-scanner" href="#">Website Scanner</a><a class="font-body-sm text-body-sm text-on-surface-variant hover:text-primary transition-colors" data-path="security-dashboard" href="#">Threat Intelligence</a><a class="font-body-sm text-body-sm text-on-surface-variant hover:text-primary transition-colors" data-path="threat-reports" href="#">Incident Database</a><a class="font-body-sm text-body-sm text-on-surface-variant hover:text-primary transition-colors" data-path="report-a-scam" href="#">Community Reporting</a></div><div class="flex flex-col gap-space-sm"><span class="font-label-badge text-label-badge uppercase tracking-wider text-on-surface font-semibold">Developers & Feeds</span><a class="font-body-sm text-body-sm text-on-surface-variant hover:text-primary transition-colors" href="#">REST Telemetry API</a><a class="font-body-sm text-body-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Webhook Advisories</a><a class="font-body-sm text-body-sm text-on-surface-variant hover:text-primary transition-colors" href="#">SDK Documentation</a><a class="font-body-sm text-body-sm text-on-surface-variant hover:text-primary transition-colors" href="#">CVE Stream (JSON)</a></div><div class="flex flex-col gap-space-sm"><span class="font-label-badge text-label-badge uppercase tracking-wider text-on-surface font-semibold">Verification & Trust</span><div class="flex flex-col gap-space-xs"><div class="flex items-center gap-space-xs font-label-code text-label-code text-on-surface"><span class="material-symbols-outlined text-secondary text-sm">verified_user</span><span>SOC2 Type II Certified</span></div><div class="flex items-center gap-space-xs font-label-code text-label-code text-on-surface"><span class="material-symbols-outlined text-secondary text-sm">security</span><span>ISO 27001 Verified</span></div><div class="flex items-center gap-space-xs font-label-code text-label-code text-on-surface"><span class="material-symbols-outlined text-tertiary text-sm">gavel</span><span>GDPR Compliant</span></div></div></div></div><div class="pt-space-lg flex flex-col md:flex-row items-center justify-between gap-space-md text-on-surface-variant font-body-sm text-body-sm"><div>© 2025 TrustShield AI Inc. All rights reserved. Zero-Retention Guaranteed.</div><div class="flex items-center gap-space-lg"><a class="hover:text-on-surface transition-colors" href="#">Privacy Framework</a><a class="hover:text-on-surface transition-colors" href="#">Terms of Service</a><a class="hover:text-on-surface transition-colors" href="#">Security Vulnerability Disclosure</a></div></div></div></footer></body></html>

@@ -9,7 +9,8 @@ const shortDate = (value) => { const parsed = new Date(value); return Number.isN
 const queryString = (extra = {}) => new URLSearchParams({ page: String(state.page), limit: String(state.limit), ...(state.q ? { q: state.q } : {}), ...(state.status ? { status: state.status } : {}), ...(state.priority ? { priority: state.priority } : {}), ...(state.role ? { role: state.role } : {}), ...(state.severity ? { severity: state.severity } : {}), ...extra }).toString();
 
 async function api(path, options = {}) {
-  const response = await fetch(path, { credentials: 'same-origin', ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) } });
+  const url = window.TrustShieldConfig?.getApiUrl ? window.TrustShieldConfig.getApiUrl(path) : path;
+  const response = await fetch(url, { credentials: 'include', ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) } });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || (response.status === 404 ? 'This service is not available on the current deployment. Check the backend API configuration.' : `Request failed (${response.status}).`));
   return body;
@@ -327,8 +328,9 @@ async function openIncident(id) {
 
 async function downloadEvidence(button) {
   const id = Number(button.dataset.report); const file = button.dataset.file;
-  const url = file ? `/api/reports/${id}/evidence/attachment/${Number(file)}` : `/api/reports/${id}/evidence`;
-  try { const response = await fetch(url, { credentials: 'same-origin' }); if (!response.ok) throw new Error('Evidence download failed.'); const blob = await response.blob(); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = button.closest('.config-row')?.querySelector('b')?.textContent || 'evidence'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }
+  const rawPath = file ? `/api/reports/${id}/evidence/attachment/${Number(file)}` : `/api/reports/${id}/evidence`;
+  const url = window.TrustShieldConfig?.getApiUrl ? window.TrustShieldConfig.getApiUrl(rawPath) : rawPath;
+  try { const response = await fetch(url, { credentials: 'include' }); if (!response.ok) throw new Error('Evidence download failed.'); const blob = await response.blob(); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = button.closest('.config-row')?.querySelector('b')?.textContent || 'evidence'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }
   catch (error) { notify(error.message); }
 }
 

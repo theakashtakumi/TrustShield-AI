@@ -1,6 +1,6 @@
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-const state = { user: null, scans: [], reports: [], ownReports: [], pendingEvidence: [], communityPage: 1, communityPages: 0, activityTab: 'scans', search: '', filter: 'all', category: 'all', sort: 'latest', notifications: [], aiStatus: null, toastTimer: null };
+const state = { user: null, scans: [], reports: [], ownReports: [], pendingEvidence: [], communityPage: 1, communityPages: 0, activityTab: 'scans', search: '', filter: 'all', category: 'all', sort: 'latest', myReportSearch: '', myReportStatus: 'all', myReportCategory: 'all', myReportSort: 'latest', notifications: [], aiStatus: null, toastTimer: null };
 const statuses = ['Submitted', 'Under Review', 'More Information Required', 'Partially Supported', 'Verified Findings', 'Inconsistencies Found', 'Rejected', 'Disputed'];
 
 function storedGuestReports() {
@@ -24,13 +24,14 @@ function escapeHtml(value = '') {
 
 async function api(path, options = {}) {
   const guestTokens = state.user ? '' : storedGuestReports().map((item) => item.token).join(',');
-  const response = await fetch(path, { credentials: 'same-origin', ...options,
+  const url = window.TrustShieldConfig?.getApiUrl ? window.TrustShieldConfig.getApiUrl(path) : path;
+  const response = await fetch(url, { credentials: 'include', ...options,
     headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(guestTokens ? { 'X-TrustShield-Guest-Tokens': guestTokens } : {}), ...(options.headers || {}) } });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     const message = body.error || '';
     if (response.status === 404 && (!message || message === 'Not found.')) {
-      throw new Error('TrustShield API not found. For local use, run `python server.py` and open http://127.0.0.1:8000. Static hosting such as Vercel serves the page only; it needs a separately hosted backend for sign in and account creation.');
+      throw new Error('TrustShield API not found or server is not reachable. For local use, run `python server.py` and open http://127.0.0.1:8000.');
     }
     throw new Error(message || `Request failed (${response.status}).`);
   }
@@ -255,27 +256,144 @@ async function loadAiEvaluation() {
 }
 
 function renderActivity() {
-  const items = state.activityTab === 'scans' ? state.scans : state.ownReports;
   $('#scan-count').textContent = String(state.scans.length);
   $('#my-report-count').textContent = String(state.ownReports.length);
   const area = $('#activity-list');
-  if (!items.length) {
-    area.innerHTML = `<div class="activity-empty">${state.activityTab === 'scans' ? (state.user ? 'Your scans will appear here after your first check.' : 'Sign in to save scans and revisit them here.') : 'Reports submitted on this browser or while signed in will appear here.'}</div>`;
+  if (!area) return;
+
+  if (state.activityTab === 'scans') {
+    const items = state.scans;
+    if (!items.length) {
+      area.innerHTML = `<div class="activity-empty">${state.user ? 'Your scans will appear here after your first check.' : 'Sign in or run a scan to revisit previous assessments here.'}</div>`;
+      return;
+    }
+    area.innerHTML = items.slice(0, 20).map((item) => {
+      const status = item.label || 'Insufficient Data';
+      return `<button class="activity-row activity-scan" data-scan-id="${Number(item.id)}">
+        <span class="activity-site-icon">◎</span>
+        <span class="activity-site"><b>${escapeHtml(item.domain || domainFrom(item.url))}</b><small>${escapeHtml(item.summary ? item.summary.slice(0, 70) + '…' : item.url)}</small></span>
+        <span class="activity-result ${riskClass(status)}">${escapeHtml(status)}</span>
+        <span class="activity-score">${item.score != null && status !== 'Insufficient Data' ? `Score ${escapeHtml(item.score)}` : '—'}</span>
+        <span class="activity-time">${dateLabel(item.created_at)}</span>
+      </button>`;
+    }).join('');
     return;
   }
-  area.innerHTML = items.slice(0, 20).map((item) => {
-    const report = state.activityTab === 'my-reports';
-    const status = item.status || item.label || (report ? 'Submitted' : 'Insufficient Data');
-    return `<button class="activity-row ${report ? 'activity-own-report' : 'activity-scan'}" ${report ? `data-own-report-id="${Number(item.id)}"` : `data-scan-id="${Number(item.id)}"`}><span class="activity-site-icon">${report ? '⌘' : '◎'}</span><span class="activity-site"><b>${escapeHtml(item.domain || item.business || domainFrom(item.url))}</b><small>${report ? escapeHtml(item.reference_code || `TSH-${String(item.id).padStart(6, '0')}`) : escapeHtml(item.label || 'Scan')}</small></span><span class="activity-result">${escapeHtml(displayReportStatus(status))}</span><span class="activity-time">${dateLabel(item.created_at)}</span>${report && item.public_update ? `<small class="activity-update">Latest update: ${escapeHtml(item.public_update)}</small>` : ''}</button>`;
+
+  // Activity Tab: my-reports
+  let reports = state.ownReports || [];
+  const categories = [...new Set(reports.map((r) => r.category).filter(Boolean))];
+
+  // Apply filters
+  if (state.myReportSearch) {
+    const q = state.myReportSearch.toLowerCase();
+    reports = reports.filter((r) =>
+      (r.reference_code && r.reference_code.toLowerCase().includes(q)) ||
+      (r.domain && r.domain.toLowerCase().includes(q)) ||
+      (r.business && r.business.toLowerCase().includes(q)) ||
+      (r.category && r.category.toLowerCase().includes(q)) ||
+      (r.details && r.details.toLowerCase().includes(q)) ||
+      (r.description && r.description.toLowerCase().includes(q))
+    );
+  }
+  if (state.myReportStatus && state.myReportStatus !== 'all') {
+    reports = reports.filter((r) => r.status === state.myReportStatus);
+  }
+  if (state.myReportCategory && state.myReportCategory !== 'all') {
+    reports = reports.filter((r) => r.category === state.myReportCategory);
+  }
+  if (state.myReportSort === 'oldest') {
+    reports = [...reports].reverse();
+  }
+
+  const toolbarHtml = `
+    <div class="my-reports-toolbar">
+      <div class="search-box">
+        <span>⌕</span>
+        <input id="my-reports-search-input" value="${escapeHtml(state.myReportSearch)}" placeholder="Search reports by ID, website, or keyword…" />
+      </div>
+      <div class="my-reports-filters">
+        <select id="my-reports-status-filter" class="form-input">
+          <option value="all" ${state.myReportStatus === 'all' ? 'selected' : ''}>All statuses</option>
+          <option value="Submitted" ${state.myReportStatus === 'Submitted' ? 'selected' : ''}>Submitted (Pending)</option>
+          <option value="Under Review" ${state.myReportStatus === 'Under Review' ? 'selected' : ''}>Under Review</option>
+          <option value="More Information Required" ${state.myReportStatus === 'More Information Required' ? 'selected' : ''}>More Information Required</option>
+          <option value="Partially Supported" ${state.myReportStatus === 'Partially Supported' ? 'selected' : ''}>Partially Supported</option>
+          <option value="Verified Findings" ${state.myReportStatus === 'Verified Findings' ? 'selected' : ''}>Verified Findings</option>
+          <option value="Resolved" ${state.myReportStatus === 'Resolved' ? 'selected' : ''}>Resolved</option>
+          <option value="Rejected" ${state.myReportStatus === 'Rejected' ? 'selected' : ''}>Rejected</option>
+        </select>
+        <select id="my-reports-category-filter" class="form-input">
+          <option value="all">All categories</option>
+          ${categories.map((c) => `<option value="${escapeHtml(c)}" ${state.myReportCategory === c ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
+        </select>
+        <select id="my-reports-sort-filter" class="form-input">
+          <option value="latest" ${state.myReportSort === 'latest' ? 'selected' : ''}>Newest first</option>
+          <option value="oldest" ${state.myReportSort === 'oldest' ? 'selected' : ''}>Oldest first</option>
+        </select>
+      </div>
+    </div>
+  `;
+
+  if (!reports.length) {
+    const hasFilters = Boolean(state.myReportSearch || state.myReportStatus !== 'all' || state.myReportCategory !== 'all');
+    area.innerHTML = `${toolbarHtml}<div class="activity-empty">${hasFilters ? 'No reports match your selected filters.' : 'Reports submitted on this browser or while signed in will appear here.'} ${!hasFilters ? '<button class="button button-outline" id="activity-submit-report" style="margin-top:12px">Submit a report ↗</button>' : ''}</div>`;
+    return;
+  }
+
+  const rows = reports.map((item) => {
+    const status = item.status || 'Submitted';
+    const statusClass = `status-${status.toLowerCase().replaceAll(' ', '-')}`;
+    const refCode = item.reference_code || `TSH-${String(item.id).padStart(6, '0')}`;
+    const domain = item.domain || item.business || domainFrom(item.url);
+    const evidenceText = item.evidence_count ? `${item.evidence_count} file${item.evidence_count === 1 ? '' : 's'}` : (item.evidence_submitted ? '1 file' : 'No files');
+    return `
+      <div class="activity-report-card">
+        <div class="report-row-main">
+          <div class="report-row-id">
+            <span class="ref-badge">${escapeHtml(refCode)}</span>
+            <span class="status-badge ${statusClass}">${escapeHtml(displayReportStatus(status))}</span>
+          </div>
+          <div class="report-row-target">
+            <strong>${escapeHtml(domain)}</strong>
+            <small>${escapeHtml(item.category || 'General Complaint')}</small>
+          </div>
+        </div>
+        <div class="report-row-meta">
+          <span class="evidence-tag">▧ ${evidenceText}</span>
+          <span class="activity-time">${dateLabel(item.last_updated || item.created_at)}</span>
+          <button class="button button-small button-outline" data-own-report-id="${Number(item.id)}">View Details ↗</button>
+        </div>
+        ${item.public_update ? `<div class="activity-update-banner"><span class="update-icon">ⓘ</span><span><b>Moderator update:</b> ${escapeHtml(item.public_update)}</span></div>` : ''}
+      </div>
+    `;
   }).join('');
+
+  area.innerHTML = `${toolbarHtml}<div class="my-reports-list">${rows}</div>`;
 }
 
 function renderDashboard() {
   const reports = state.ownReports || [];
   const summary = state.overview || {};
-  $('#dashboard-overview').innerHTML = `<div><span>TOTAL SCANS</span><b>${state.user ? Number(summary.scans || 0) : '—'}</b></div><div><span>MY REPORTS</span><b>${Number(summary.reports || 0)}</b></div><div><span>AWAITING REVIEW</span><b>${Number(summary.awaiting_review || 0)}</b></div><div><span>MORE INFO REQUESTED</span><b>${Number(summary.more_information_required || 0)}</b></div>`;
+  const totalScans = state.user ? Number(summary.scans || state.scans.length || 0) : state.scans.length;
+  const totalReports = Number(summary.total_reports ?? summary.reports ?? reports.length ?? 0);
+  const pending = Number(summary.pending ?? summary.awaiting_review ?? 0);
+  const underInvestigation = Number(summary.under_investigation ?? 0);
+  const awaitingInfo = Number(summary.awaiting_info ?? summary.more_information_required ?? 0);
+  const verified = Number(summary.verified ?? 0);
+  const resolved = Number(summary.resolved ?? 0);
+  const rejected = Number(summary.rejected ?? 0);
+
+  $('#dashboard-overview').innerHTML = `
+    <div class="metric-card"><span class="metric-label">TOTAL COMPLAINTS</span><b class="metric-val">${totalReports}</b><small class="metric-sub">${totalScans} scans recorded</small></div>
+    <div class="metric-card"><span class="metric-label">PENDING REVIEW</span><b class="metric-val warning">${pending}</b><small class="metric-sub">In triage queue</small></div>
+    <div class="metric-card"><span class="metric-label">UNDER INVESTIGATION</span><b class="metric-val info">${underInvestigation}</b><small class="metric-sub">Active moderator review</small></div>
+    <div class="metric-card"><span class="metric-label">AWAITING INFO</span><b class="metric-val warning">${awaitingInfo}</b><small class="metric-sub">Action required by reporter</small></div>
+    <div class="metric-card"><span class="metric-label">VERIFIED FINDINGS</span><b class="metric-val success">${verified}</b><small class="metric-sub">Backed by evidence</small></div>
+    <div class="metric-card"><span class="metric-label">RESOLVED / CLOSED</span><b class="metric-val">${resolved + rejected}</b><small class="metric-sub">${resolved} resolved · ${rejected} rejected</small></div>
+  `;
   const next = reports.filter((item) => item.guidance_pending > 0 || item.status === 'More Information Required').slice(0, 4);
-  $('#guidance-dashboard').innerHTML = next.length ? `<div class="guidance-dashboard-heading"><div><span class="eyebrow">YOUR NEXT ACTIONS</span><h3>Continue where you left off</h3></div></div><div class="guidance-dashboard-list">${next.map((item) => `<button data-guidance-report="${Number(item.id)}"><b>${escapeHtml(item.reference_code || '')} · ${escapeHtml(item.business || item.domain)}</b><span>${Number(item.guidance_completed || 0)} of ${Number(item.guidance_total || 0)} steps completed${item.status === 'More Information Required' ? ' · update requested' : ''}</span><i>Open report →</i></button>`).join('')}</div>` : '<div class="guidance-dashboard-empty">Your report guidance and completed actions will appear here.</div>';
+  $('#guidance-dashboard').innerHTML = next.length ? `<div class="guidance-dashboard-heading"><div><span class="eyebrow">YOUR NEXT ACTIONS</span><h3>Continue where you left off</h3></div></div><div class="guidance-dashboard-list">${next.map((item) => `<button data-guidance-report="${Number(item.id)}"><b>${escapeHtml(item.reference_code || `TSH-${String(item.id).padStart(6, '0')}`)} · ${escapeHtml(item.business || item.domain)}</b><span>${Number(item.guidance_completed || 0)} of ${Number(item.guidance_total || 0)} steps completed${item.status === 'More Information Required' ? ' · update requested' : ''}</span><i>Open report →</i></button>`).join('')}</div>` : '<div class="guidance-dashboard-empty">Your report guidance and completed actions will appear here.</div>';
 }
 
 async function loadNotifications() {

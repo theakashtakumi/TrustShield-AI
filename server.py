@@ -45,16 +45,17 @@ MAX_REDIRECTS = 5
 RATE_BUCKETS = {}
 RATE_LOCK = __import__("threading").Lock()
 UPLOAD_MIMES = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp", "application/pdf": ".pdf", "text/plain": ".txt"}
-REPORT_STATUSES = ("Submitted", "Under Review", "More Information Required", "Partially Supported", "Verified Findings", "Inconsistencies Found", "Rejected", "Disputed")
+REPORT_STATUSES = ("Submitted", "Under Review", "More Information Required", "Partially Supported", "Verified Findings", "Inconsistencies Found", "Rejected", "Disputed", "Resolved")
 STATUS_TRANSITIONS = {
     "Submitted": {"Under Review", "More Information Required", "Rejected", "Disputed"},
-    "Under Review": {"More Information Required", "Partially Supported", "Verified Findings", "Inconsistencies Found", "Rejected", "Disputed"},
-    "More Information Required": {"Under Review", "Partially Supported", "Inconsistencies Found", "Rejected", "Disputed"},
-    "Partially Supported": {"Under Review", "More Information Required", "Verified Findings", "Inconsistencies Found", "Rejected", "Disputed"},
-    "Verified Findings": {"Under Review", "Inconsistencies Found", "Disputed"},
-    "Inconsistencies Found": {"Under Review", "More Information Required", "Partially Supported", "Rejected", "Disputed"},
+    "Under Review": {"More Information Required", "Partially Supported", "Verified Findings", "Inconsistencies Found", "Rejected", "Disputed", "Resolved"},
+    "More Information Required": {"Under Review", "Partially Supported", "Inconsistencies Found", "Rejected", "Disputed", "Resolved"},
+    "Partially Supported": {"Under Review", "More Information Required", "Verified Findings", "Inconsistencies Found", "Rejected", "Disputed", "Resolved"},
+    "Verified Findings": {"Under Review", "Inconsistencies Found", "Disputed", "Resolved"},
+    "Inconsistencies Found": {"Under Review", "More Information Required", "Partially Supported", "Rejected", "Disputed", "Resolved"},
     "Rejected": {"Under Review", "Disputed"},
-    "Disputed": {"Under Review", "More Information Required", "Partially Supported", "Verified Findings", "Inconsistencies Found", "Rejected"},
+    "Disputed": {"Under Review", "More Information Required", "Partially Supported", "Verified Findings", "Inconsistencies Found", "Rejected", "Resolved"},
+    "Resolved": {"Under Review", "Disputed"},
 }
 
 
@@ -818,6 +819,35 @@ def scan_site(raw, user_id=None):
 class Handler(BaseHTTPRequestHandler):
     server_version = "TrustShield/1.0"
 
+    def send_cors_headers(self):
+        origin = self.headers.get("Origin", "")
+        if not origin:
+            return
+        allowed_env = os.environ.get("TRUSTSHIELD_ALLOWED_ORIGINS", "").strip()
+        allowed_list = {o.strip() for o in allowed_env.split(",") if o.strip()}
+        is_allowed = False
+        if origin in allowed_list:
+            is_allowed = True
+        elif re.match(r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$", origin):
+            is_allowed = True
+        elif not allowed_list:
+            # Default to reflecting origin for development and multi-port setups
+            is_allowed = True
+
+        if is_allowed:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Credentials", "true")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Cookie, Authorization, X-TrustShield-Guest-Tokens, X-Requested-With")
+            self.send_header("Vary", "Origin")
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_cors_headers()
+        self.send_header("Access-Control-Max-Age", "86400")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def send_json(self, value, status=200):
         data = json.dumps(value, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
@@ -826,7 +856,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
-        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
+        self.send_header("Content-Security-Policy", "default-src 'self' 'unsafe-inline' https:; font-src 'self' https://fonts.gstatic.com data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; connect-src 'self' *; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'")
+        self.send_cors_headers()
         self.end_headers()
         self.wfile.write(data)
 
@@ -888,7 +919,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def session_cookie(self, token, max_age=60 * 60 * 24 * 14):
         secure = "; Secure" if os.environ.get("TRUSTSHIELD_SECURE_COOKIE", "").lower() in {"1", "true", "yes"} else ""
-        return f"trustshield_session={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={max_age}{secure}"
+        samesite = "None" if (os.environ.get("TRUSTSHIELD_CROSS_ORIGIN_COOKIE", "").lower() in {"1", "true", "yes"} or secure) else "Lax"
+        if samesite == "None" and not secure:
+            samesite = "Lax"
+        return f"trustshield_session={token}; HttpOnly; SameSite={samesite}; Path=/; Max-Age={max_age}{secure}"
 
     def handle_admin_get(self, path, query):
         routes = {
@@ -924,10 +958,19 @@ class Handler(BaseHTTPRequestHandler):
                       (SELECT COUNT(DISTINCT domain) FROM scans WHERE label='Moderate Risk') suspicious_websites,
                       (SELECT COUNT(DISTINCT domain) FROM scans WHERE label='High Risk') high_risk_websites,
                       (SELECT COUNT(*) FROM scans WHERE label='Critical Risk') critical_risk_scans,
+                      (SELECT COUNT(*) FROM reports) total_complaints,
+                      (SELECT COUNT(*) FROM reports WHERE status='Submitted') submitted_complaints,
+                      (SELECT COUNT(*) FROM reports WHERE status='Under Review') under_investigation_complaints,
+                      (SELECT COUNT(*) FROM reports WHERE status='More Information Required') awaiting_info_complaints,
+                      (SELECT COUNT(*) FROM reports WHERE status='Verified Findings') verified_reports,
+                      (SELECT COUNT(*) FROM reports WHERE status IN ('Rejected','Inconsistencies Found')) rejected_reports,
+                      (SELECT COUNT(*) FROM reports WHERE status IN ('Resolved','Partially Supported')) resolved_reports,
                       (SELECT COUNT(*) FROM reports WHERE status IN ('Submitted','Under Review','More Information Required','Disputed')) pending_complaints,
                       (SELECT COUNT(*) FROM threat_records WHERE status='verified') verified_threats,
                       (SELECT COUNT(*) FROM scans WHERE label='Insufficient Data') failed_scans,
-                      (SELECT COUNT(*) FROM incidents WHERE status NOT IN ('resolved','closed')) open_incidents
+                      (SELECT COUNT(*) FROM incidents WHERE status NOT IN ('resolved','closed')) open_incidents,
+                      (SELECT COUNT(*) FROM ai_runs) total_ai_runs,
+                      (SELECT COUNT(*) FROM ai_feedback) ai_feedback_count
                 """, (today,)).fetchone()
                 chart_rows = conn.execute("SELECT substr(created_at,1,10) day,COUNT(*) count FROM scans WHERE created_at>=datetime('now',?) GROUP BY day ORDER BY day", (f"-{days} days",)).fetchall()
                 counts = {row["day"]: row["count"] for row in chart_rows}
@@ -1375,14 +1418,21 @@ class Handler(BaseHTTPRequestHandler):
                 scans = [dict(row) for row in conn.execute("SELECT id,url,domain,score,label,summary,checks,created_at,scanner_version,calculation,ai_analysis,phishing_analysis FROM scans WHERE user_id=? ORDER BY id DESC LIMIT 20", (user["id"],))] if user else []
                 placeholders_public = ",".join("?" for _ in PUBLIC_STATUSES)
                 reports = [dict(row) for row in conn.execute(f"SELECT id,url,category,details,business,status,created_at,evidence_name FROM reports WHERE status IN ({placeholders_public}) ORDER BY id DESC LIMIT 100", PUBLIC_STATUSES)]
+                own_select = """
+                    SELECT r.id,r.url,r.domain,r.category,r.business,r.status,r.priority,r.created_at,r.public_update,r.user_id,r.guest_token_hash,
+                      r.evidence_name,
+                      (CASE WHEN r.evidence_name<>'' THEN 1 ELSE 0 END + (SELECT COUNT(*) FROM report_attachments a WHERE a.report_id=r.id)) AS evidence_count,
+                      COALESCE((SELECT created_at FROM moderation_events WHERE report_id=r.id ORDER BY id DESC LIMIT 1), r.created_at) AS last_updated
+                    FROM reports r
+                """
                 if user:
-                    own = [dict(row) for row in conn.execute("SELECT id,url,category,business,status,created_at,public_update,user_id,guest_token_hash FROM reports WHERE user_id=? ORDER BY id DESC LIMIT 50", (user["id"],))]
+                    own = [dict(row) for row in conn.execute(own_select + " WHERE r.user_id=? ORDER BY r.id DESC LIMIT 100", (user["id"],))]
                     if guest_hashes:
                         placeholders = ",".join("?" for _ in guest_hashes)
-                        own.extend(dict(row) for row in conn.execute(f"SELECT id,url,category,business,status,created_at,public_update,user_id,guest_token_hash FROM reports WHERE user_id IS NULL AND guest_token_hash IN ({placeholders}) ORDER BY id DESC LIMIT 30", guest_hashes))
+                        own.extend(dict(row) for row in conn.execute(own_select + f" WHERE r.user_id IS NULL AND r.guest_token_hash IN ({placeholders}) ORDER BY r.id DESC LIMIT 50", guest_hashes))
                 elif guest_hashes:
                     placeholders = ",".join("?" for _ in guest_hashes)
-                    own = [dict(row) for row in conn.execute(f"SELECT id,url,category,business,status,created_at,public_update,user_id,guest_token_hash FROM reports WHERE guest_token_hash IN ({placeholders}) ORDER BY id DESC LIMIT 30", guest_hashes)]
+                    own = [dict(row) for row in conn.execute(own_select + f" WHERE r.guest_token_hash IN ({placeholders}) ORDER BY r.id DESC LIMIT 50", guest_hashes)]
                 else:
                     own = []
                 if user and user["role"] == "admin":
@@ -1409,7 +1459,24 @@ class Handler(BaseHTTPRequestHandler):
                     owner_condition, owner_args = "0", ()
                 awaiting_count = conn.execute(f"SELECT COUNT(*) FROM reports WHERE {owner_condition} AND status IN ('Submitted','Under Review')", owner_args).fetchone()[0]
                 info_count = conn.execute(f"SELECT COUNT(*) FROM reports WHERE {owner_condition} AND status='More Information Required'", owner_args).fetchone()[0]
-                overview = {"scans": scan_count, "reports": report_count, "awaiting_review": awaiting_count, "more_information_required": info_count}
+                pending_count = conn.execute(f"SELECT COUNT(*) FROM reports WHERE {owner_condition} AND status='Submitted'", owner_args).fetchone()[0]
+                investigating_count = conn.execute(f"SELECT COUNT(*) FROM reports WHERE {owner_condition} AND status='Under Review'", owner_args).fetchone()[0]
+                verified_count = conn.execute(f"SELECT COUNT(*) FROM reports WHERE {owner_condition} AND status='Verified Findings'", owner_args).fetchone()[0]
+                rejected_count = conn.execute(f"SELECT COUNT(*) FROM reports WHERE {owner_condition} AND status IN ('Rejected', 'Inconsistencies Found')", owner_args).fetchone()[0]
+                resolved_count = conn.execute(f"SELECT COUNT(*) FROM reports WHERE {owner_condition} AND status IN ('Resolved', 'Partially Supported')", owner_args).fetchone()[0]
+
+                overview = {
+                    "scans": scan_count,
+                    "reports": report_count,
+                    "pending": pending_count,
+                    "under_investigation": investigating_count,
+                    "awaiting_info": info_count,
+                    "verified": verified_count,
+                    "rejected": rejected_count,
+                    "resolved": resolved_count,
+                    "awaiting_review": awaiting_count,
+                    "more_information_required": info_count
+                }
             for scan in scans:
                 scan["checks"] = json.loads(scan["checks"])
                 scan["findings"] = scan["checks"]
@@ -1574,7 +1641,20 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return self.wfile.write(data)
         if path == "/api/health":
-            return self.send_json({"ok": True})
+            db_status = "connected"
+            try:
+                with db() as conn:
+                    conn.execute("SELECT 1").fetchone()
+            except Exception:
+                db_status = "disconnected"
+            return self.send_json({
+                "ok": db_status == "connected",
+                "status": "healthy" if db_status == "connected" else "degraded",
+                "service": "TrustShield AI Engine",
+                "version": SCANNER_VERSION,
+                "database": db_status,
+                "timestamp": now()
+            }, 200 if db_status == "connected" else 503)
         relative = "index.html" if path == "/" else path.lstrip("/")
         target = (ROOT / "web" / relative).resolve()
         if not target.is_relative_to(ROOT / "web") or not target.is_file():
